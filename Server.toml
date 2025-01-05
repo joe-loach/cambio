@@ -1,0 +1,3 @@
+snap_time_secs = 10
+new_round_timer_secs = 60
+port = 25580
