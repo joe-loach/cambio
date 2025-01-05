@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
-use super::{Card, STARTING_DECK_LEN};
-use crate::{client, server, stream};
+use crate::{client, server, stream, Card, Deck, STARTING_DECK_LEN};
 
 pub struct PlayerConn {
     pub read: stream::Read<client::Event>,
@@ -59,4 +58,9 @@ impl Default for PlayerData {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub fn take_starting_cards(player: &mut PlayerData, deck: &mut Deck) {
+    let cards_from_deck = deck.0.drain(..STARTING_DECK_LEN);
+    player.cards.extend(cards_from_deck);
 }

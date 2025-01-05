@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{player::PlayerData, Card};
+use crate::Card;
+
+use super::player::PlayerData;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {

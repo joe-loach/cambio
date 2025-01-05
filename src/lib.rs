@@ -1,5 +1,4 @@
 pub mod client;
-mod player;
 pub mod server;
 mod stream;
 
@@ -212,9 +211,4 @@ impl Deck {
     pub fn shuffle<R: rand::Rng + ?Sized>(&mut self, rng: &mut R) {
         self.0.shuffle(rng);
     }
-}
-
-pub fn take_starting_cards(player: &mut player::PlayerData, deck: &mut Deck) {
-    let cards_from_deck = deck.0.drain(..STARTING_DECK_LEN);
-    player.cards.extend(cards_from_deck);
 }

@@ -1,6 +1,7 @@
 pub mod config;
 mod data;
 mod event;
+mod player;
 
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -10,15 +11,13 @@ use data::GameData;
 pub use event::Event;
 use futures::SinkExt;
 use itertools::Itertools;
+use player::{PlayerConn, PlayerData};
 use tokio::{net::TcpListener, select, time};
 use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, trace};
 
-use crate::{
-    client,
-    player::{PlayerConn, PlayerData},
-};
+use crate::client;
 
 pub struct GameServer {
     config: Config,
@@ -232,7 +231,7 @@ impl GameServer {
             .await;
 
         for p in &mut data.players {
-            crate::take_starting_cards(p, &mut data.deck);
+            player::take_starting_cards(p, &mut data.deck);
         }
 
         self.broadcast(connections, Event::FirstDraw, &data.players)

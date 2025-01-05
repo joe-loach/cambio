@@ -1,4 +1,6 @@
-use crate::{player::PlayerData, Deck};
+use crate::Deck;
+
+use super::player::PlayerData;
 
 pub struct GameData {
     pub deck: Deck,
