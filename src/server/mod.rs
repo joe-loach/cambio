@@ -1,19 +1,20 @@
 pub mod config;
+mod connection;
 mod data;
 mod event;
 mod player;
 
+use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr};
 
 use config::Config;
-use dashmap::DashMap;
+use connection::Connections;
 use data::GameData;
 pub use event::Event;
-use futures::SinkExt;
 use itertools::Itertools;
 use player::{PlayerConn, PlayerData};
 use tokio::{net::TcpListener, select, time};
-use tokio_stream::StreamExt;
+use tokio_stream::StreamMap;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, trace};
 
@@ -22,8 +23,6 @@ use crate::client;
 pub struct GameServer {
     config: Config,
 }
-
-type ConnectionMap = DashMap<uuid::Uuid, PlayerConn>;
 
 impl GameServer {
     pub fn from_config() -> Self {
@@ -41,18 +40,19 @@ impl GameServer {
 
     pub async fn run(&self, token: CancellationToken) {
         let mut data = GameData::initial();
-        let mut connections = ConnectionMap::new();
+        let mut connections = Connections::default();
 
         select! {
             _ = self.game_sequence(&mut data, &mut connections) => {}
             _ = token.cancelled() => {
                 info!("server cancelled");
-                self.close(&mut connections, &data.players).await;
             }
         }
+
+        self.close(&connections);
     }
 
-    async fn game_sequence(&self, data: &mut GameData, connections: &mut ConnectionMap) {
+    async fn game_sequence(&self, data: &mut GameData, connections: &mut Connections) {
         self.lobby(connections, data).await;
 
         self.setup(connections, data).await;
@@ -60,137 +60,103 @@ impl GameServer {
         let mut rounds = 0;
 
         loop {
-            self.broadcast(connections, Event::RoundStart(rounds), &data.players)
-                .await;
+            connections.broadcast(Event::RoundStart(rounds));
 
             self.play_round(connections, data, rounds).await;
 
-            self.broadcast(connections, Event::RoundEnd, &data.players)
-                .await;
+            connections.broadcast(Event::RoundEnd);
+            connections.broadcast(Event::ConfirmNewRound);
 
-            self.broadcast(connections, Event::ConfirmNewRound, &data.players)
-                .await;
-
-            let responses_needed = data.players.len();
+            let responses_needed = data.player_count();
             let responses = {
-                let mut cons = data
-                    .players
-                    .iter_mut()
-                    .map(|p| connections.get_mut(&p.id()).unwrap())
-                    .collect::<Vec<_>>();
-
-                let mut listeners = futures::stream::SelectAll::new();
-                for con in &mut cons {
-                    listeners.push(&mut con.read);
-                }
-
                 let timeout =
                     time::sleep(time::Duration::from_secs(self.config.new_round_timer_secs));
                 tokio::pin!(timeout);
 
-                let mut responses = 0;
+                let mut responses = HashSet::new();
 
                 loop {
                     select! {
                         _ = &mut timeout => { info!("new round time out"); break; }
-                        Ok(Some(client::Event::Continue)) = listeners.try_next() => {
-                            responses += 1;
+                        Some((id, client::Event::Continue)) = connections.events().recv() => {
+                            responses.insert(id);
 
-                            if responses == responses_needed {
+                            if responses.len() == responses_needed {
                                 break;
                             }
                         }
                         else => break,
                     }
                 }
-                responses
+
+                responses.len()
             };
 
             if responses < responses_needed {
-                self.broadcast(connections, Event::GameEnd, &data.players)
-                    .await;
+                connections.broadcast(Event::GameEnd);
                 break;
             }
 
             rounds += 1;
         }
-
-        self.broadcast(connections, Event::ServerClosing, &data.players)
-            .await;
     }
 }
 
 impl GameServer {
     async fn play_round(
         &self,
-        connections: &mut ConnectionMap,
+        connections: &mut Connections,
         data: &mut GameData,
         round_offset: usize,
     ) {
         const FIRST_PLAYER: usize = 0;
 
-        let player_count = data.players.len();
+        let player_count = data.player_count();
         let mut turn = (FIRST_PLAYER + round_offset) % player_count;
 
         loop {
-            self.broadcast(
-                connections,
-                Event::TurnStart {
-                    slot: turn,
-                    uuid: data.player(turn).id(),
-                },
-                &data.players,
-            )
-            .await;
+            connections.broadcast(Event::TurnStart {
+                slot: turn,
+                uuid: data.get_player(turn).id(),
+            });
 
             let Some(card) = data.deck.draw() else {
-                self.broadcast(connections, Event::EndTurn, &data.players)
-                    .await;
+                connections.broadcast(Event::EndTurn);
 
                 break;
             };
-            self.send(connections, Event::DrawCard(card), data.player_mut(turn))
-                .await;
+            connections.broadcast(Event::DrawCard(card));
 
-            self.broadcast(connections, Event::WaitingForDecision, &data.players)
-                .await;
+            connections.broadcast(Event::WaitingForDecision);
 
             // read decision
-            let _ack = connections
-                .get_mut(&data.player(turn).id())
-                .unwrap()
-                .read
-                .try_next()
-                .await
-                .unwrap();
+            while let Some((id, event)) = connections.events().recv().await {
+                if id == data.get_player(turn).id() {
+                    if let client::Event::Decision = event {
+                        break;
+                    }
+                }
+            }
 
-            self.broadcast(connections, Event::PlayAction, &data.players)
-                .await;
+            connections.broadcast(Event::PlayAction);
 
-            self.listen_for_snaps(connections, &mut data.players).await;
+            self.listen_for_snaps(connections).await;
 
-            self.broadcast(connections, Event::EndTurn, &data.players)
-                .await;
+            connections.broadcast(Event::EndTurn);
 
             turn = (turn + 1) % player_count;
         }
 
-        self.broadcast(connections, Event::CambioCall, &data.players)
-            .await;
+        connections.broadcast(Event::CambioCall);
 
         {
             let cooldown = time::Duration::from_secs(self.config.show_all_cooldown);
             time::sleep(cooldown).await;
         }
 
-        self.broadcast(
-            connections,
-            Event::ShowAll(data.players.clone()),
-            &data.players,
-        )
-        .await;
+        connections.broadcast(Event::ShowAll(data.players().to_vec()));
 
-        let scores = data.players.iter().into_group_map_by(|p| p.score());
+        let scores = data.players().iter().into_group_map_by(|p| p.score());
         let winner = scores
             .iter()
             .min_by(|(a, _), (b, _)| a.cmp(b))
@@ -204,7 +170,7 @@ impl GameServer {
             });
 
         let winner_result = if let Some(winner) = winner {
-            let slot = data.players.iter().position(|p| p == *winner).unwrap();
+            let slot = data.players().iter().position(|p| p == *winner).unwrap();
             event::Winner::Player {
                 slot,
                 uuid: winner.id(),
@@ -213,13 +179,11 @@ impl GameServer {
             event::Winner::Tied
         };
 
-        self.broadcast(connections, Event::Winner(winner_result), &data.players)
-            .await;
+        connections.broadcast(Event::Winner(winner_result));
     }
 
-    async fn setup(&self, connections: &mut ConnectionMap, data: &mut GameData) {
-        self.broadcast(connections, Event::Starting, &data.players)
-            .await;
+    async fn setup(&self, connections: &mut Connections, data: &mut GameData) {
+        connections.broadcast(Event::Starting);
 
         {
             trace!("shuffling cards");
@@ -227,31 +191,30 @@ impl GameServer {
             data.deck.shuffle(&mut rng);
         }
 
-        self.broadcast(connections, Event::Setup, &data.players)
-            .await;
+        connections.broadcast(Event::Setup);
 
-        for p in &mut data.players {
-            player::take_starting_cards(p, &mut data.deck);
+        for i in 0..data.player_count() {
+            data::take_starting_cards(data, i);
         }
 
-        self.broadcast(connections, Event::FirstDraw, &data.players)
-            .await;
+        connections.broadcast(Event::FirstDraw);
 
-        self.send_map(
-            connections,
-            |p| {
+        connections
+            .send_map(|id| {
+                let p = data
+                    .players()
+                    .iter()
+                    .find(|p| p.id() == id)
+                    .expect("player no longer exists");
                 let [a, b] = p.cards()[..2] else {
                     unreachable!()
                 };
-
                 Event::FirstPeek(a, b)
-            },
-            &data.players,
-        )
-        .await;
+            })
+            .await;
     }
 
-    async fn lobby(&self, connections: &mut ConnectionMap, data: &mut GameData) {
+    async fn lobby(&self, connections: &mut Connections, data: &mut GameData) {
         trace!("enter lobby");
 
         let listener = TcpListener::bind((
@@ -263,34 +226,23 @@ impl GameServer {
 
         info!("listening on {:?}", listener.local_addr().ok());
 
+        let (notify_shutdown, mut shutdown) = tokio::sync::mpsc::channel(config::MAX_PLAYER_COUNT);
         let mut host = None;
 
         'waiting: loop {
             info!(
                 "waiting for clients ({}/{})",
-                data.players.len(),
+                data.player_count(),
                 config::MAX_PLAYER_COUNT
             );
 
             let (socket, addr) = {
-                let mut cons = data
-                    .players
-                    .iter_mut()
-                    .map(|p| (p.id(), connections.get_mut(&p.id()).unwrap()))
-                    .collect::<Vec<_>>();
-
-                let mut listeners = tokio_stream::StreamMap::new();
-                for (id, stream) in &mut cons {
-                    listeners.insert(*id, &mut stream.read);
-                }
-
                 // either accept client or a request to start the game
                 select! {
                     Ok(client) = listener.accept() => { client }
 
-                    Some((id, Ok(client::Event::Start))) = listeners.next(),
-                        if data.players.len() >= config::MIN_PLAYER_COUNT =>
-                    {
+                    Some((id, client::Event::Start)) = connections.events().recv(),
+                    if data.player_count() >= config::MIN_PLAYER_COUNT => {
                         if host.is_some_and(|host| host == id) {
                             info!("host started game");
                             break 'waiting;
@@ -298,6 +250,8 @@ impl GameServer {
                             continue 'waiting;
                         }
                     }
+
+                    else => { continue 'waiting; }
                 }
             };
 
@@ -305,29 +259,31 @@ impl GameServer {
             let player = PlayerData::new();
             let player_id = player.id();
 
-            if data.players.is_empty() {
+            if data.player_count() == 0 {
                 // the first player becomes the host
                 host = Some(player_id);
             }
 
             let slot = data.add_player(player);
-            connections.insert(player_id, PlayerConn::from(socket));
+
+            // spawn a player task
+            player::spawn(
+                connections,
+                player_id,
+                PlayerConn::from(socket),
+                notify_shutdown.clone(),
+            );
 
             // let everyone know someone has joined
-            let capacity = data.players.len();
+            let player_count = data.player_count();
 
-            self.broadcast(
-                connections,
-                Event::Joined {
-                    slot,
-                    uuid: player_id,
-                    capacity,
-                },
-                &data.players,
-            )
-            .await;
+            connections.broadcast(Event::Joined {
+                slot,
+                uuid: player_id,
+                player_count,
+            });
 
-            if capacity == config::MAX_PLAYER_COUNT {
+            if player_count == config::MAX_PLAYER_COUNT {
                 info!("max lobby capacity reached");
                 break 'waiting;
             }
@@ -336,48 +292,23 @@ impl GameServer {
         trace!("exiting lobby");
     }
 
-    async fn listen_for_snaps(
-        &self,
-        connections: &mut ConnectionMap,
-        players: &mut [PlayerData],
-    ) -> Option<uuid::Uuid> {
-        self.broadcast(connections, Event::WaitingForSnap, players)
-            .await;
-
-        let mut cons = players
-            .iter_mut()
-            .map(|p| (p.id(), connections.get_mut(&p.id()).unwrap()))
-            .collect::<Vec<_>>();
-
-        let mut listeners = tokio_stream::StreamMap::new();
-        for (id, stream) in &mut cons {
-            listeners.insert(*id, &mut stream.read);
-        }
+    async fn listen_for_snaps(&self, connections: &mut Connections) -> Option<uuid::Uuid> {
+        connections.broadcast(Event::WaitingForSnap);
 
         let timeout = time::sleep(time::Duration::from_secs(self.config.snap_time_secs));
         tokio::pin!(timeout);
 
         loop {
             select! {
+                Some((id, event)) = connections.events().recv() => {
+                    if let client::Event::Snap = event {
+                        info!("Player {id} snapped");
+                        break Some(id);
+                    }
+                }
                 _ = &mut timeout => {
                     info!("snap time out");
                     break None;
-                }
-                res = listeners.next() => {
-                    match res {
-                        Some((id, Ok(client::Event::Snap))) => {
-                            info!("Player {id} snapped");
-                            break Some(id);
-                        }
-                        Some((_, Ok(_))) => {
-                            // not a snap
-                        }
-                        Some((_, Err(e))) => {
-                            error!("{e}");
-                            break None;
-                        }
-                        None => {}
-                    }
                 }
             }
         }
@@ -385,45 +316,8 @@ impl GameServer {
 }
 
 impl GameServer {
-    async fn close(&self, connections: &mut ConnectionMap, players: &[PlayerData]) {
-        self.broadcast(connections, Event::ServerClosing, players)
-            .await;
-    }
-}
-
-impl GameServer {
-    async fn send(&self, connections: &mut ConnectionMap, event: Event, player: &PlayerData) {
-        trace!("send stage: {:?} to player {}", event, player.id());
-        self.inner_send(connections, event, player).await;
-    }
-
-    async fn send_map<F>(&self, connections: &mut ConnectionMap, f: F, players: &[PlayerData])
-    where
-        F: Fn(&PlayerData) -> Event,
-    {
-        for player in players {
-            let event = f(player);
-            self.inner_send(connections, event, player).await;
-        }
-    }
-
-    async fn broadcast(
-        &self,
-        connections: &mut ConnectionMap,
-        event: Event,
-        players: &[PlayerData],
-    ) {
-        trace!("broadcasting stage: {:?}", &event);
-        for player in players {
-            self.inner_send(connections, event.clone(), player).await;
-        }
-    }
-
-    async fn inner_send(&self, connections: &mut ConnectionMap, event: Event, player: &PlayerData) {
-        let write = &mut connections.get_mut(&player.id()).unwrap().write;
-        let res = write.send(event).await;
-        if let Err(e) = res {
-            error!("Error {e:?} when sending to player {}", player.id());
-        }
+    fn close(&self, connections: &Connections) {
+        connections.broadcast(Event::ServerClosing);
+        connections.send_all(player::Command::Close);
     }
 }

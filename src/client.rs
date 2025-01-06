@@ -9,7 +9,7 @@ use tracing::{error, info};
 
 use crate::{server, stream};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
     Start,
     Snap,
@@ -56,7 +56,7 @@ impl GameClient {
             println!("GOT: {:?}", msg);
 
             match msg {
-                server::Event::Joined { capacity, .. } => {
+                server::Event::Joined { player_count: capacity, .. } => {
                     if capacity >= 2 {
                         let _ = self.write.send(Event::Start).await;
                     }

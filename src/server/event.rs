@@ -13,8 +13,8 @@ pub enum Event {
         slot: usize,
         /// The unique id of the player
         uuid: Uuid,
-        /// The current capacity of the game lobby
-        capacity: usize,
+        /// The number of players in the lobby
+        player_count: usize,
     },
     /// Wait for all players to enter game
     Starting,

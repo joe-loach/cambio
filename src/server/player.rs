@@ -1,7 +1,80 @@
+use futures::SinkExt;
 use serde::{Deserialize, Serialize};
-use tokio::net::TcpStream;
+use tokio::sync::mpsc;
+use tokio::{net::TcpStream, select};
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use tracing::{error, info};
 
-use crate::{client, server, stream, Card, Deck, STARTING_DECK_LEN};
+use crate::{client, server, stream, Card, STARTING_DECK_LEN};
+
+use super::Connections;
+
+pub enum CloseReason {
+    Server,
+    Client,
+    Error,
+}
+
+#[derive(Debug, Clone)]
+pub enum Command {
+    Event(server::Event),
+    Close,
+}
+
+pub fn spawn(
+    connections: &mut Connections,
+    id: uuid::Uuid,
+    mut conn: PlayerConn,
+    shutdown: mpsc::Sender<(uuid::Uuid, CloseReason)>,
+) {
+    const COMMAND_CHANNEL_CAPACITY: usize = 32;
+
+    let event_sender = connections.event_sender();
+
+    let (tx, rx) = mpsc::channel(COMMAND_CHANNEL_CAPACITY);
+    connections.insert(id, tx);
+
+    // turn channels into streams
+    let own = Box::pin(ReceiverStream::new(rx));
+    let broadcast =
+        Box::pin(BroadcastStream::new(connections.subscribe_to_all()).filter_map(|res| res.ok()));
+
+    // combine commands from both sources
+    let mut commands = own.merge(broadcast);
+
+    tokio::spawn(async move {
+        let reason = loop {
+            select! {
+                Some(cmd) = commands.next() => {
+                    match cmd {
+                        Command::Event(event) => {
+                            conn.write.send(event).await.expect("failed to send event");
+                        }
+                        Command::Close => {
+                            info!("player task closing");
+                            break CloseReason::Server;
+                        }
+                    }
+                }
+                Some(Ok(event)) = conn.read.next() => {
+                    event_sender.send((id, event.clone())).await.expect("server closed");
+
+                    if let client::Event::Leave = event {
+                        info!("player task left");
+                        break CloseReason::Client;
+                    }
+                }
+                else => {
+                    error!("player task encountered error");
+                    break CloseReason::Error;
+                }
+            }
+        };
+
+        let _ = shutdown.send((id, reason)).await;
+    });
+}
 
 pub struct PlayerConn {
     pub read: stream::Read<client::Event>,
@@ -58,9 +131,4 @@ impl Default for PlayerData {
     fn default() -> Self {
         Self::new()
     }
-}
-
-pub fn take_starting_cards(player: &mut PlayerData, deck: &mut Deck) {
-    let cards_from_deck = deck.0.drain(..STARTING_DECK_LEN);
-    player.cards.extend(cards_from_deck);
 }

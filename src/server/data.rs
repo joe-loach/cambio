@@ -1,10 +1,10 @@
-use crate::Deck;
+use crate::{Deck, STARTING_DECK_LEN};
 
 use super::player::PlayerData;
 
 pub struct GameData {
     pub deck: Deck,
-    pub(super) players: Vec<PlayerData>,
+    players: Vec<PlayerData>,
 }
 
 impl GameData {
@@ -15,17 +15,26 @@ impl GameData {
         }
     }
 
+    pub fn player_count(&self) -> usize {
+        self.players.len()
+    }
+
     pub fn add_player(&mut self, player: PlayerData) -> usize {
         let index = self.players.len();
         self.players.push(player);
         index
     }
 
-    pub fn player(&self, i: usize) -> &PlayerData {
-        &self.players[i]
+    pub fn players(&self) -> &[PlayerData] {
+        &self.players
     }
 
-    pub fn player_mut(&mut self, i: usize) -> &mut PlayerData {
-        &mut self.players[i]
+    pub fn get_player(&self, i: usize) -> &PlayerData {
+        &self.players[i]
     }
+}
+
+pub fn take_starting_cards(data: &mut GameData, player: usize) {
+    let cards_from_deck = data.deck.0.drain(..STARTING_DECK_LEN);
+    data.players[player].cards.extend(cards_from_deck);
 }
