@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use tokio::sync::{broadcast, mpsc};
-use tracing::instrument;
+use tracing::trace;
 
 use crate::{client, server::config};
 
@@ -51,20 +51,25 @@ impl Connections {
     pub fn broadcast(&self, event: Event) {
         self.send_all(player::Command::Event(event));
     }
-
-    #[instrument(level = "trace", skip(self))]
+    
     pub fn send_all(&self, command: player::Command) {
-        let _ = self.all.send(command);
+        let res = self.all.send(command.clone());
+        trace!("broadcasting command: `{command:?}` = {res:?}");
     }
 
-    #[instrument(level = "trace", skip(self, f))]
     pub async fn send_map<F>(&mut self, f: F)
     where
         F: Fn(uuid::Uuid) -> Event,
     {
         for (id, slot) in &mut self.map {
             if let Some(sender) = slot {
+                if sender.is_closed() {
+                    // channel closed, remove it from the map
+                    *slot = None;
+                    continue;
+                }
                 let event = f(*id);
+                trace!("sending event: `{event:?}`");
                 let res = sender.send(player::Command::Event(event)).await;
                 if res.is_err() {
                     // channel closed, remove it from the map
@@ -72,6 +77,8 @@ impl Connections {
                 }
             }
         }
+        // make sure we remove old connections
+        self.map.retain(|_, slot| slot.is_some());
     }
 }
 
