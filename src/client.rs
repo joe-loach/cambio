@@ -43,31 +43,34 @@ impl GameClient {
     }
 
     async fn game_loop(&mut self) {
-        let Some(server::Event::Joined { slot, .. }) = self.read.try_next().await.unwrap() else {
+        let Some(server::Event::Joined { uuid, .. }) = self.read.try_next().await.unwrap() else {
             error!("failed to join");
             return;
         };
 
         info!("joined lobby");
 
-        let mut turn = usize::MAX;
+        let mut turn = uuid;
 
         while let Some(msg) = self.read.try_next().await.unwrap() {
             println!("GOT: {:?}", msg);
 
             match msg {
-                server::Event::Joined { player_count: capacity, .. } => {
+                server::Event::Joined {
+                    player_count: capacity,
+                    ..
+                } => {
                     if capacity >= 2 {
                         let _ = self.write.send(Event::Start).await;
                     }
                 }
-                server::Event::TurnStart { slot, uuid: _ } => {
-                    turn = slot;
+                server::Event::TurnStart { uuid, .. } => {
+                    turn = uuid;
                 }
-                server::Event::WaitingForDecision if turn == slot => {
+                server::Event::WaitingForDecision if turn == uuid => {
                     self.write.send(Event::Decision).await.unwrap();
                 }
-                server::Event::WaitingForSnap if turn != slot => {
+                server::Event::WaitingForSnap if turn != uuid => {
                     self.write.send(Event::Snap).await.unwrap();
                 }
                 server::Event::ServerClosing => {
