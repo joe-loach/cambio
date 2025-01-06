@@ -1,6 +1,7 @@
 pub mod config;
 mod connection;
 mod data;
+mod disconnect;
 mod event;
 mod player;
 
@@ -269,19 +270,7 @@ impl GameServer {
 
         info!("listening on {:?}", listener.local_addr().ok());
 
-        // listen for and remove shutdown clients
-        let (shutdown, mut reasons) = mpsc::channel(config::MAX_PLAYER_COUNT);
-        let (leaving, mut left) = mpsc::channel(1);
-        tokio::spawn({
-            let data = Arc::clone(data);
-            async move {
-                while let Some((id, _reason)) = reasons.recv().await {
-                    info!("client {id} left");
-                    data.lock().remove_player(id);
-                    let _ = leaving.send(id).await;
-                }
-            }
-        });
+        let (shutdown, mut left) = disconnect::handler(data.clone());
 
         'waiting: loop {
             info!(
