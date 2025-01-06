@@ -73,7 +73,8 @@ impl GameServer {
             connections.broadcast(Event::RoundEnd);
             connections.broadcast(Event::ConfirmNewRound);
 
-            if self.new_round(connections, &data).await.is_break() {
+            if !self.new_round(connections, &data).await {
+                connections.broadcast(Event::GameEnd);
                 break;
             }
 
@@ -167,8 +168,9 @@ impl GameServer {
         connections.broadcast(Event::Winner(winner_result));
     }
 
-    async fn new_round(&self, connections: &mut Connections, data: &GameData) -> ControlFlow<()> {
+    async fn new_round(&self, connections: &mut Connections, data: &GameData) -> bool {
         let responses_needed = data.lock().player_count();
+
         let responses = {
             let timeout = time::sleep(time::Duration::from_secs(self.config.new_round_timer_secs));
             tokio::pin!(timeout);
@@ -192,12 +194,7 @@ impl GameServer {
             responses.len()
         };
 
-        if responses < responses_needed {
-            connections.broadcast(Event::GameEnd);
-            return ControlFlow::Break(());
-        }
-
-        ControlFlow::Continue(())
+        responses >= responses_needed
     }
 
     async fn listen_for_snaps(&self, connections: &mut Connections) -> Option<uuid::Uuid> {
