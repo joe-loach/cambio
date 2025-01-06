@@ -73,33 +73,7 @@ impl GameServer {
             connections.broadcast(Event::RoundEnd);
             connections.broadcast(Event::ConfirmNewRound);
 
-            let responses_needed = data.lock().player_count();
-            let responses = {
-                let timeout =
-                    time::sleep(time::Duration::from_secs(self.config.new_round_timer_secs));
-                tokio::pin!(timeout);
-
-                let mut responses = HashSet::new();
-
-                loop {
-                    select! {
-                        _ = &mut timeout => { info!("new round time out"); break; }
-                        Some((id, client::Event::Continue)) = connections.events().recv() => {
-                            responses.insert(id);
-
-                            if responses.len() == responses_needed {
-                                break;
-                            }
-                        }
-                        else => break,
-                    }
-                }
-
-                responses.len()
-            };
-
-            if responses < responses_needed {
-                connections.broadcast(Event::GameEnd);
+            if self.new_round(connections, &data).await.is_break() {
                 break;
             }
 
@@ -191,6 +165,39 @@ impl GameServer {
         };
 
         connections.broadcast(Event::Winner(winner_result));
+    }
+
+    async fn new_round(&self, connections: &mut Connections, data: &GameData) -> ControlFlow<()> {
+        let responses_needed = data.lock().player_count();
+        let responses = {
+            let timeout = time::sleep(time::Duration::from_secs(self.config.new_round_timer_secs));
+            tokio::pin!(timeout);
+
+            let mut responses = HashSet::new();
+
+            loop {
+                select! {
+                    _ = &mut timeout => { info!("new round time out"); break; }
+                    Some((id, client::Event::Continue)) = connections.events().recv() => {
+                        responses.insert(id);
+
+                        if responses.len() == responses_needed {
+                            break;
+                        }
+                    }
+                    else => break,
+                }
+            }
+
+            responses.len()
+        };
+
+        if responses < responses_needed {
+            connections.broadcast(Event::GameEnd);
+            return ControlFlow::Break(());
+        }
+
+        ControlFlow::Continue(())
     }
 
     async fn listen_for_snaps(&self, connections: &mut Connections) -> Option<uuid::Uuid> {
