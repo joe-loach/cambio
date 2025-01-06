@@ -9,8 +9,6 @@ use super::data::PlayerData;
 pub enum Event {
     /// A player joined
     Joined {
-        /// Which slot the player filled
-        slot: usize,
         /// The unique id of the player
         uuid: Uuid,
         /// The number of players in the lobby
@@ -36,7 +34,7 @@ pub enum Event {
     /// Players view their front 2 cards
     FirstPeek(Card, Card),
     /// Turn of player has started
-    TurnStart { slot: usize, uuid: Uuid },
+    TurnStart { uuid: Uuid },
     /// Card is drawn from deck
     DrawCard(Card),
     /// Waiting for the player to make a decision

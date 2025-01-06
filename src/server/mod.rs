@@ -97,7 +97,6 @@ impl GameServer {
 
         loop {
             connections.broadcast(Event::TurnStart {
-                slot: turn,
                 uuid: data.lock().get_player(turn).id(),
             });
 
@@ -341,21 +340,18 @@ impl GameServer {
         let player = PlayerData::new();
         let player_id = player.id();
 
-        let (slot, player_count) = {
-            let mut data = data.lock();
+        let mut data = data.lock();
 
-            let slot = data.add_player(player);
-            let player_count = data.player_count();
+        data.add_player(player);
+        let player_count = data.player_count();
 
-            (slot, player_count)
-        };
+        drop(data);
 
         // spawn a player task
         player::spawn(connections, player_id, PlayerConn::from(socket), shutdown);
 
         // let everyone know someone has joined
         connections.broadcast(Event::Joined {
-            slot,
             uuid: player_id,
             player_count,
         });
