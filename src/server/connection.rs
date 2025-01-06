@@ -51,12 +51,12 @@ impl Connections {
         self.send_all(player::Command::Event(event));
     }
 
-    #[instrument(level = "trace", skip(self), ret)]
+    #[instrument(level = "trace", skip(self))]
     pub fn send_all(&self, command: player::Command) {
         let _ = self.all.send(command);
     }
 
-    #[instrument(level = "trace", skip(self, f), ret)]
+    #[instrument(level = "trace", skip(self, f))]
     pub async fn send_map<F>(&self, f: F)
     where
         F: Fn(uuid::Uuid) -> Event,
