@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::Card;
 
-use super::player::PlayerData;
+use super::data::PlayerData;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {

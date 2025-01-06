@@ -10,10 +10,11 @@ use std::sync::Arc;
 
 use config::Config;
 use connection::Connections;
+use data::PlayerData;
 pub use event::Event;
 use itertools::Itertools;
 use parking_lot::Mutex;
-use player::{PlayerConn, PlayerData};
+use player::PlayerConn;
 use tokio::sync::mpsc;
 use tokio::{net::TcpListener, select, time};
 use tokio_util::sync::CancellationToken;
