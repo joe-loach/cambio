@@ -65,6 +65,6 @@ pub enum Event {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Winner {
-    Player { slot: usize, uuid: Uuid },
+    Player { uuid: Uuid },
     Tied,
 }

@@ -230,11 +230,7 @@ impl GameServer {
                     });
 
             if let Some(winner) = winner {
-                let slot = data.players().iter().position(|p| p == *winner).unwrap();
-                event::Winner::Player {
-                    slot,
-                    uuid: winner.id(),
-                }
+                event::Winner::Player { uuid: winner.id() }
             } else {
                 event::Winner::Tied
             }
