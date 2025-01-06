@@ -3,10 +3,14 @@ use uuid::Uuid;
 
 use crate::Card;
 
-use super::data::PlayerData;
+use super::data::{PlayerData, Stage};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
+    /// The `Stage` has changed
+    StageChange(Stage),
+    /// The game has restarted
+    Restart,
     /// A player joined
     Joined {
         /// The unique id of the player
@@ -21,11 +25,9 @@ pub enum Event {
         /// The number of players in the lobby
         player_count: usize,
     },
-    /// Wait for all players to enter game
-    Starting,
     /// Start of a round
     RoundStart(usize),
-    /// Shuffle cards
+    /// Reset cards and shuffle
     Setup,
     /// Players draw their first 4 cards
     ///

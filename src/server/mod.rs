@@ -6,13 +6,14 @@ mod event;
 mod player;
 
 use std::collections::HashSet;
+use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use config::Config;
 use connection::Connections;
-use data::PlayerData;
+use data::{PlayerData, Stage};
 pub use event::Event;
 use itertools::Itertools;
 use parking_lot::Mutex;
@@ -23,9 +24,13 @@ use tokio::{net::TcpListener, select, time};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, trace, warn};
 
-use crate::client;
+use crate::{client, Deck};
 
 type GameData = Arc<Mutex<data::GameData>>;
+
+pub enum Interrupt {
+    Restart,
+}
 
 pub struct GameServer {
     config: Config,
@@ -47,34 +52,106 @@ impl GameServer {
 
     pub async fn run(&self, token: CancellationToken) {
         let data = Arc::new(Mutex::new(Default::default()));
-        let mut connections = Connections::default();
+        let connections = Connections::default();
 
-        select! {
-            _ = self.game_sequence(&mut connections, data) => {}
-            _ = token.cancelled() => {
-                info!("server cancelled");
+        let (ir_tx, mut interrupts) = mpsc::channel::<Interrupt>(8);
+        let (shutdown, leaving, handler) = disconnect::handler(data.clone(), ir_tx);
+
+        let (mut stop_game, game) = self.create_game(data, connections, shutdown.clone(), leaving);
+
+        tokio::pin!(game);
+
+        loop {
+            select! {
+                (_, connections, _) = &mut game => {
+                    // game completed normally,
+                    // close all connections
+                    self.close(&connections);
+                    break;
+                },
+                Some(ir) = interrupts.recv() => {
+                    match ir {
+                        Interrupt::Restart => {
+                            // get old data
+                            stop_game.send(()).await.expect("failed to cancel game");
+                            let (data, connections, leaving) = (&mut game).await;
+                            // let everyone know we're restarting
+                            connections.broadcast(Event::Restart);
+                            // create new game using old data
+                            let (stop, fut) = self.create_game(
+                                data,
+                                connections,
+                                shutdown.clone(),
+                                leaving,
+                            );
+                            stop_game = stop;
+                            // overwrite the future
+                            game.set(fut);
+                        }
+                    }
+                }
+                _ = token.cancelled() => {
+                    // abort, we don't care about cleaning up
+                    // stop running the game loop
+                    stop_game.send(()).await.expect("failed to cancel game");
+                    // await it's finish
+                    let _ = game.await;
+                    break;
+                },
             }
         }
 
-        self.close(&connections);
+        handler.abort();
     }
 
-    async fn game_sequence(&self, connections: &mut Connections, mut data: GameData) {
-        self.lobby(connections, &mut data).await;
+    fn create_game(
+        &self,
+        mut data: GameData,
+        mut connections: Connections,
+        shutdown: mpsc::Sender<(uuid::Uuid, player::CloseReason)>,
+        mut leaving: mpsc::Receiver<uuid::Uuid>,
+    ) -> (
+        mpsc::Sender<()>,
+        impl Future<Output = (GameData, Connections, mpsc::Receiver<uuid::Uuid>)> + use<'_>,
+    ) {
+        let (stop_tx, mut stop_rx) = mpsc::channel::<()>(8);
 
-        self.setup(connections, &mut data).await;
+        let game_fut = async move {
+            let sequence = async {
+                self.lobby(&mut connections, &mut data, shutdown, &mut leaving)
+                    .await;
+                self.playing(&mut data, &mut connections).await;
+            };
+
+            select! {
+                _ = sequence => {}
+                _ = stop_rx.recv() => {}
+            }
+
+            (data, connections, leaving)
+        };
+
+        (stop_tx, game_fut)
+    }
+}
+
+impl GameServer {
+    async fn playing(&self, data: &mut GameData, connections: &mut Connections) {
+        self.change_stage(Stage::Playing, connections, data);
+
+        self.setup(connections, data).await;
 
         let mut rounds = 0;
 
         loop {
             connections.broadcast(Event::RoundStart(rounds));
 
-            self.play_round(connections, &mut data, rounds).await;
+            self.play_round(connections, data, rounds).await;
 
             connections.broadcast(Event::RoundEnd);
             connections.broadcast(Event::ConfirmNewRound);
 
-            if !self.new_round(connections, &data).await {
+            if !self.new_round(connections, data).await {
                 connections.broadcast(Event::GameEnd);
                 break;
             }
@@ -82,9 +159,7 @@ impl GameServer {
             rounds += 1;
         }
     }
-}
 
-impl GameServer {
     async fn play_round(
         &self,
         connections: &mut Connections,
@@ -220,15 +295,17 @@ impl GameServer {
     }
 
     async fn setup(&self, connections: &mut Connections, data: &mut GameData) {
-        connections.broadcast(Event::Starting);
+        connections.broadcast(Event::Setup);
 
         {
+            let deck = &mut data.lock().deck;
+            trace!("setting up deck");
+            *deck = Deck::full();
+
             trace!("shuffling cards");
             let mut rng = rand::thread_rng();
-            data.lock().deck.shuffle(&mut rng);
+            deck.shuffle(&mut rng);
         }
-
-        connections.broadcast(Event::Setup);
 
         {
             let mut data = data.lock();
@@ -258,8 +335,15 @@ impl GameServer {
 }
 
 impl GameServer {
-    async fn lobby(&self, connections: &mut Connections, data: &mut GameData) {
+    async fn lobby(
+        &self,
+        connections: &mut Connections,
+        data: &mut GameData,
+        shutdown: mpsc::Sender<(uuid::Uuid, player::CloseReason)>,
+        leaving: &mut mpsc::Receiver<uuid::Uuid>,
+    ) {
         trace!("enter lobby");
+        self.change_stage(Stage::Lobby, connections, data);
 
         let listener = TcpListener::bind((
             IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -269,8 +353,6 @@ impl GameServer {
         .expect("failed to create server port");
 
         info!("listening on {:?}", listener.local_addr().ok());
-
-        let (shutdown, mut left) = disconnect::handler(data.clone());
 
         'waiting: loop {
             info!(
@@ -299,7 +381,7 @@ impl GameServer {
                     }
                 }
                 // a client left the lobby
-                Some(id) = left.recv() => {
+                Some(id) = leaving.recv() => {
                     connections.broadcast(
                         Event::Left {
                             uuid: id,
@@ -366,6 +448,13 @@ impl GameServer {
     fn close(&self, connections: &Connections) {
         connections.broadcast(Event::ServerClosing);
         connections.send_all(player::Command::Close);
+    }
+}
+
+impl GameServer {
+    fn change_stage(&self, stage: Stage, connections: &Connections, data: &mut GameData) {
+        data.lock().stage = stage;
+        connections.broadcast(Event::StageChange(stage));
     }
 }
 

@@ -1,8 +1,16 @@
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 use crate::{Card, Deck, STARTING_DECK_LEN};
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+pub enum Stage {
+    Lobby,
+    Playing,
+}
+
 pub struct GameData {
+    pub stage: Stage,
     pub deck: Deck,
     players: Vec<PlayerData>,
 }
@@ -10,6 +18,7 @@ pub struct GameData {
 impl GameData {
     pub fn new() -> Self {
         GameData {
+            stage: Stage::Lobby,
             deck: Deck::full(),
             players: Vec::new(),
         }
@@ -28,6 +37,8 @@ impl GameData {
     pub fn remove_player(&mut self, id: uuid::Uuid) {
         if let Some(index) = self.players.iter().position(|p| p.id() == id) {
             self.players.remove(index);
+        } else {
+            warn!("failed to remove player {id}");
         }
     }
 
