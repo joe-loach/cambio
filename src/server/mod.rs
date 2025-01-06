@@ -6,18 +6,22 @@ mod player;
 
 use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr};
+use std::sync::Arc;
 
 use config::Config;
 use connection::Connections;
-use data::GameData;
 pub use event::Event;
 use itertools::Itertools;
+use parking_lot::Mutex;
 use player::{PlayerConn, PlayerData};
+use tokio::sync::mpsc;
 use tokio::{net::TcpListener, select, time};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, trace};
 
 use crate::client;
+
+type GameData = Arc<Mutex<data::GameData>>;
 
 pub struct GameServer {
     config: Config,
@@ -38,11 +42,11 @@ impl GameServer {
     }
 
     pub async fn run(&self, token: CancellationToken) {
-        let mut data = GameData::initial();
+        let data = Arc::new(Mutex::new(Default::default()));
         let mut connections = Connections::default();
 
         select! {
-            _ = self.game_sequence(&mut data, &mut connections) => {}
+            _ = self.game_sequence(&mut connections, data) => {}
             _ = token.cancelled() => {
                 info!("server cancelled");
             }
@@ -51,22 +55,22 @@ impl GameServer {
         self.close(&connections);
     }
 
-    async fn game_sequence(&self, data: &mut GameData, connections: &mut Connections) {
-        self.lobby(connections, data).await;
+    async fn game_sequence(&self, connections: &mut Connections, mut data: GameData) {
+        self.lobby(connections, &mut data).await;
 
-        self.setup(connections, data).await;
+        self.setup(connections, &mut data).await;
 
         let mut rounds = 0;
 
         loop {
             connections.broadcast(Event::RoundStart(rounds));
 
-            self.play_round(connections, data, rounds).await;
+            self.play_round(connections, &mut data, rounds).await;
 
             connections.broadcast(Event::RoundEnd);
             connections.broadcast(Event::ConfirmNewRound);
 
-            let responses_needed = data.player_count();
+            let responses_needed = data.lock().player_count();
             let responses = {
                 let timeout =
                     time::sleep(time::Duration::from_secs(self.config.new_round_timer_secs));
@@ -110,16 +114,16 @@ impl GameServer {
     ) {
         const FIRST_PLAYER: usize = 0;
 
-        let player_count = data.player_count();
+        let player_count = data.lock().player_count();
         let mut turn = (FIRST_PLAYER + round_offset) % player_count;
 
         loop {
             connections.broadcast(Event::TurnStart {
                 slot: turn,
-                uuid: data.get_player(turn).id(),
+                uuid: data.lock().get_player(turn).id(),
             });
 
-            let Some(card) = data.deck.draw() else {
+            let Some(card) = data.lock().deck.draw() else {
                 connections.broadcast(Event::EndTurn);
 
                 break;
@@ -130,7 +134,7 @@ impl GameServer {
 
             // read decision
             while let Some((id, event)) = connections.events().recv().await {
-                if id == data.get_player(turn).id() {
+                if id == data.lock().get_player(turn).id() {
                     if let client::Event::Decision = event {
                         break;
                     }
@@ -153,29 +157,34 @@ impl GameServer {
             time::sleep(cooldown).await;
         }
 
-        connections.broadcast(Event::ShowAll(data.players().to_vec()));
+        let winner_result = {
+            let data = data.lock();
 
-        let scores = data.players().iter().into_group_map_by(|p| p.score());
-        let winner = scores
-            .iter()
-            .min_by(|(a, _), (b, _)| a.cmp(b))
-            .and_then(|(_, players)| {
-                if let [winner] = players.as_slice() {
-                    Some(winner)
-                } else {
-                    // no sole winner
-                    None
+            connections.broadcast(Event::ShowAll(data.players().to_vec()));
+
+            let scores = data.players().iter().into_group_map_by(|p| p.score());
+            let winner =
+                scores
+                    .iter()
+                    .min_by(|(a, _), (b, _)| a.cmp(b))
+                    .and_then(|(_, players)| {
+                        if let [winner] = players.as_slice() {
+                            Some(winner)
+                        } else {
+                            // no sole winner
+                            None
+                        }
+                    });
+
+            if let Some(winner) = winner {
+                let slot = data.players().iter().position(|p| p == *winner).unwrap();
+                event::Winner::Player {
+                    slot,
+                    uuid: winner.id(),
                 }
-            });
-
-        let winner_result = if let Some(winner) = winner {
-            let slot = data.players().iter().position(|p| p == *winner).unwrap();
-            event::Winner::Player {
-                slot,
-                uuid: winner.id(),
+            } else {
+                event::Winner::Tied
             }
-        } else {
-            event::Winner::Tied
         };
 
         connections.broadcast(Event::Winner(winner_result));
@@ -187,19 +196,24 @@ impl GameServer {
         {
             trace!("shuffling cards");
             let mut rng = rand::thread_rng();
-            data.deck.shuffle(&mut rng);
+            data.lock().deck.shuffle(&mut rng);
         }
 
         connections.broadcast(Event::Setup);
 
-        for i in 0..data.player_count() {
-            data::take_starting_cards(data, i);
+        {
+            let mut data = data.lock();
+
+            for i in 0..data.player_count() {
+                data::take_starting_cards(&mut data, i);
+            }
         }
 
         connections.broadcast(Event::FirstDraw);
 
         connections
             .send_map(|id| {
+                let data = data.lock();
                 let p = data
                     .players()
                     .iter()
@@ -225,13 +239,26 @@ impl GameServer {
 
         info!("listening on {:?}", listener.local_addr().ok());
 
-        let (notify_shutdown, mut shutdown) = tokio::sync::mpsc::channel(config::MAX_PLAYER_COUNT);
+        // listen for and remove shutdown clients
+        let (shutdown, mut reasons) = mpsc::channel(config::MAX_PLAYER_COUNT);
+        let (leaving, mut left) = mpsc::channel(1);
+        tokio::spawn({
+            let data = Arc::clone(data);
+            async move {
+                while let Some((id, _reason)) = reasons.recv().await {
+                    info!("client {id} left");
+                    data.lock().remove_player(id);
+                    let _ = leaving.send(id).await;
+                }
+            }
+        });
+
         let mut host = None;
 
         'waiting: loop {
             info!(
                 "waiting for clients ({}/{})",
-                data.player_count(),
+                data.lock().player_count(),
                 config::MAX_PLAYER_COUNT
             );
 
@@ -241,13 +268,24 @@ impl GameServer {
                     Ok(client) = listener.accept() => { client }
 
                     Some((id, client::Event::Start)) = connections.events().recv(),
-                    if data.player_count() >= config::MIN_PLAYER_COUNT => {
+                    if data.lock().player_count() >= config::MIN_PLAYER_COUNT => {
                         if host.is_some_and(|host| host == id) {
                             info!("host started game");
                             break 'waiting;
                         } else {
                             continue 'waiting;
                         }
+                    }
+
+                    // refresh the count, someone left
+                    Some(id) = left.recv() => {
+                        connections.broadcast(
+                            Event::Left {
+                                uuid: id,
+                                player_count: data.lock().player_count()
+                            }
+                        );
+                        continue 'waiting;
                     }
 
                     else => { continue 'waiting; }
@@ -258,24 +296,29 @@ impl GameServer {
             let player = PlayerData::new();
             let player_id = player.id();
 
-            if data.player_count() == 0 {
-                // the first player becomes the host
-                host = Some(player_id);
-            }
+            let (slot, player_count) = {
+                let mut data = data.lock();
 
-            let slot = data.add_player(player);
+                if data.player_count() == 0 {
+                    // the first player becomes the host
+                    host = Some(player_id);
+                }
+
+                let slot = data.add_player(player);
+                let player_count = data.player_count();
+
+                (slot, player_count)
+            };
 
             // spawn a player task
             player::spawn(
                 connections,
                 player_id,
                 PlayerConn::from(socket),
-                notify_shutdown.clone(),
+                shutdown.clone(),
             );
 
             // let everyone know someone has joined
-            let player_count = data.player_count();
-
             connections.broadcast(Event::Joined {
                 slot,
                 uuid: player_id,

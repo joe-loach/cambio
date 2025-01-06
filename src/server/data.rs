@@ -8,7 +8,7 @@ pub struct GameData {
 }
 
 impl GameData {
-    pub fn initial() -> Self {
+    pub fn new() -> Self {
         GameData {
             deck: Deck::full(),
             players: Vec::new(),
@@ -25,12 +25,24 @@ impl GameData {
         index
     }
 
+    pub fn remove_player(&mut self, id: uuid::Uuid) {
+        if let Some(index) = self.players.iter().position(|p| p.id() == id) {
+            self.players.remove(index);
+        }
+    }
+
     pub fn players(&self) -> &[PlayerData] {
         &self.players
     }
 
     pub fn get_player(&self, i: usize) -> &PlayerData {
         &self.players[i]
+    }
+}
+
+impl Default for GameData {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

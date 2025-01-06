@@ -4,12 +4,12 @@ use tokio::sync::mpsc;
 use tokio::{net::TcpStream, select};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
-use tracing::{error, info};
 
 use crate::{client, server, stream, Card, STARTING_DECK_LEN};
 
 use super::Connections;
 
+#[derive(Debug)]
 pub enum CloseReason {
     Server,
     Client,
@@ -52,7 +52,6 @@ pub fn spawn(
                             conn.write.send(event).await.expect("failed to send event");
                         }
                         Command::Close => {
-                            info!("player task closing");
                             break CloseReason::Server;
                         }
                     }
@@ -61,12 +60,10 @@ pub fn spawn(
                     event_sender.send((id, event.clone())).await.expect("server closed");
 
                     if let client::Event::Leave = event {
-                        info!("player task left");
                         break CloseReason::Client;
                     }
                 }
                 else => {
-                    error!("player task encountered error");
                     break CloseReason::Error;
                 }
             }

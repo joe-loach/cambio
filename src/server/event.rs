@@ -16,6 +16,13 @@ pub enum Event {
         /// The number of players in the lobby
         player_count: usize,
     },
+    /// A player left
+    Left {
+        /// The unique id of the player
+        uuid: Uuid,
+        /// The number of players in the lobby
+        player_count: usize,
+    },
     /// Wait for all players to enter game
     Starting,
     /// Start of a round
