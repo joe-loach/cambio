@@ -1,0 +1,7 @@
+[package]
+name = "web"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true

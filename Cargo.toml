@@ -14,6 +14,7 @@ cli = { path = "cli" }
 client = { path = "client" }
 common = { path = "common" }
 server = { path = "server" }
+web = { path = "web"}
 
 anyhow = "1.0"
 async-scoped = { version = "0.9.0", features = ["use-tokio"] }
