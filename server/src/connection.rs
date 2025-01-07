@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
+use common::event::client;
 use tokio::sync::{broadcast, mpsc};
 use tracing::trace;
 
-use crate::{client, server::config};
+use crate::config;
 
 use super::{
     player::{self, Command},

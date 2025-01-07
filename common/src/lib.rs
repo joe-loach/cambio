@@ -1,6 +1,6 @@
-pub mod client;
-pub mod server;
-mod stream;
+pub mod stream;
+pub mod event;
+pub mod data;
 
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};

@@ -1,3 +1,4 @@
+use common::data::Stage;
 use tokio::sync::mpsc;
 use tracing::info;
 
@@ -23,8 +24,8 @@ pub fn handler(
 
                 let stage = data.lock().stage;
                 match stage {
-                    crate::server::data::Stage::Lobby => (),
-                    crate::server::data::Stage::Playing => {
+                    Stage::Lobby => (),
+                    Stage::Playing => {
                         // reset the game back when there aren't enough players to play
                         if data.lock().player_count() < config::MIN_PLAYER_COUNT {
                             let _ = ir_tx.send(Interrupt::Restart).await;

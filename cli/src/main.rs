@@ -3,10 +3,8 @@ mod log;
 
 use std::net::IpAddr;
 
-use cambio::{
-    client::GameClient,
-    server::{self, GameServer},
-};
+use client::GameClient;
+use server::{self, GameServer};
 use tokio::{select, task};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};

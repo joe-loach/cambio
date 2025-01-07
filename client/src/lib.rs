@@ -1,33 +1,22 @@
 use futures::prelude::*;
-use serde::{Deserialize, Serialize};
 use tokio::{
     net::{TcpStream, ToSocketAddrs},
     select,
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
-
-use crate::{server, stream};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Event {
-    Start,
-    Snap,
-    Decision,
-    Continue,
-    Leave,
-}
+use common::{event::{server, client}, stream};
 
 pub struct GameClient {
     read: stream::Read<server::Event>,
-    write: stream::Write<Event>,
+    write: stream::Write<client::Event>,
 }
 
 impl GameClient {
     pub async fn connect<A: ToSocketAddrs>(addr: A) -> Self {
         let stream = TcpStream::connect(addr).await.unwrap();
 
-        let (read, write) = stream::split::<server::Event, Event>(stream);
+        let (read, write) = stream::split(stream);
 
         Self { read, write }
     }
@@ -37,7 +26,7 @@ impl GameClient {
             _ = self.game_loop() => {}
             _ = token.cancelled() => {
                 info!("leaving server");
-                self.write.send(Event::Leave).await.unwrap();
+                self.write.send(client::Event::Leave).await.unwrap();
             }
         }
     }
@@ -61,17 +50,17 @@ impl GameClient {
                     ..
                 } => {
                     if capacity >= 2 {
-                        let _ = self.write.send(Event::Start).await;
+                        let _ = self.write.send(client::Event::Start).await;
                     }
                 }
                 server::Event::TurnStart { uuid, .. } => {
                     turn = uuid;
                 }
                 server::Event::WaitingForDecision if turn == uuid => {
-                    self.write.send(Event::Decision).await.unwrap();
+                    self.write.send(client::Event::Decision).await.unwrap();
                 }
                 server::Event::WaitingForSnap if turn != uuid => {
-                    self.write.send(Event::Snap).await.unwrap();
+                    self.write.send(client::Event::Snap).await.unwrap();
                 }
                 server::Event::ServerClosing => {
                     break;

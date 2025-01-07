@@ -1,0 +1,17 @@
+[package]
+name = "common"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+
+[dependencies]
+rand = { workspace = true }
+serde = { workspace = true }
+
+tokio = { workspace = true }
+tokio-serde = { workspace = true }
+tokio-util = { workspace = true }
+
+uuid = { workspace = true }

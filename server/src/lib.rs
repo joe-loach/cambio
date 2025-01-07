@@ -1,8 +1,6 @@
 pub mod config;
 mod connection;
-mod data;
 mod disconnect;
-mod event;
 mod player;
 
 use std::collections::HashSet;
@@ -11,10 +9,11 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
+use common::event::client;
+use common::event::server::{Event, Winner};
+use common::Deck;
 use config::Config;
 use connection::Connections;
-use data::{PlayerData, Stage};
-pub use event::Event;
 use itertools::Itertools;
 use parking_lot::Mutex;
 use player::PlayerConn;
@@ -24,7 +23,7 @@ use tokio::{net::TcpListener, select, time};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, trace, warn};
 
-use crate::{client, Deck};
+use common::data::{self, PlayerData, Stage};
 
 type GameData = Arc<Mutex<data::GameData>>;
 
@@ -230,9 +229,9 @@ impl GameServer {
                     });
 
             if let Some(winner) = winner {
-                event::Winner::Player { uuid: winner.id() }
+                Winner::Player { uuid: winner.id() }
             } else {
-                event::Winner::Tied
+                Winner::Tied
             }
         };
 

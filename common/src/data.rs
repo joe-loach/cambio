@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use tracing::warn;
 
 use crate::{Card, Deck, STARTING_DECK_LEN};
 
@@ -34,11 +33,12 @@ impl GameData {
         index
     }
 
-    pub fn remove_player(&mut self, id: uuid::Uuid) {
+    pub fn remove_player(&mut self, id: uuid::Uuid) -> bool {
         if let Some(index) = self.players.iter().position(|p| p.id() == id) {
             self.players.remove(index);
+            true
         } else {
-            warn!("failed to remove player {id}");
+            false
         }
     }
 
