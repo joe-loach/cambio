@@ -1,18 +1,18 @@
 use common::event::{client, server};
 use common::stream;
 use futures::SinkExt;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::{net::TcpStream, select};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use tracing::error;
 
-use super::Connections;
+use crate::Channels;
 
 #[derive(Debug)]
 pub enum CloseReason {
-    Server,
-    Client,
-    Error,
+    Request,
+    Exhausted,
 }
 
 #[derive(Debug, Clone)]
@@ -21,55 +21,76 @@ pub enum Command {
     Close,
 }
 
-pub fn spawn(
-    connections: &mut Connections,
+pub async fn spawn(
+    channels: &mut Channels,
     id: uuid::Uuid,
     mut conn: PlayerConn,
-    shutdown: mpsc::Sender<(uuid::Uuid, CloseReason)>,
-) {
+) -> oneshot::Receiver<CloseReason> {
     const COMMAND_CHANNEL_CAPACITY: usize = 32;
-
-    let event_sender = connections.event_sender();
-
+    
     let (tx, rx) = mpsc::channel(COMMAND_CHANNEL_CAPACITY);
-    connections.insert(id, tx);
+
+    let (event_sender, broadcast) = {
+        let mut chan = channels.lock();
+        let event_sender = chan.event_sender();
+        let broadcast = chan.subscribe_to_all();
+
+        chan.insert(id, tx);
+        
+        (event_sender, broadcast)
+    };
 
     // turn channels into streams
     let own = Box::pin(ReceiverStream::new(rx));
     let broadcast =
-        Box::pin(BroadcastStream::new(connections.subscribe_to_all()).filter_map(|res| res.ok()));
+        Box::pin(BroadcastStream::new(broadcast).filter_map(|res| res.ok()));
 
     // combine commands from both sources
     let mut commands = own.merge(broadcast);
 
+    let (closing_rx, closing_tx) = oneshot::channel();
+
     tokio::spawn(async move {
         let reason = loop {
             select! {
-                Some(cmd) = commands.next() => {
-                    match cmd {
-                        Command::Event(event) => {
+                res = commands.next() => {
+                    match res {
+                        Some(Command::Event(event)) => {
                             conn.write.send(event).await.expect("failed to send event");
                         }
-                        Command::Close => {
-                            break CloseReason::Server;
+                        Some(Command::Close) => {
+                            break CloseReason::Request;
+                        }
+                        None => {
+                            break CloseReason::Exhausted;
                         }
                     }
                 }
-                Some(Ok(event)) = conn.read.next() => {
-                    event_sender.send((id, event.clone())).await.expect("server closed");
+                res = conn.read.next() => {
+                    match res {
+                        Some(Ok(event)) => {
+                            event_sender.send((id, event.clone())).await.expect("server closed");
 
-                    if let client::Event::Leave = event {
-                        break CloseReason::Client;
+                            if let client::Event::Leave = event {
+                                break CloseReason::Request;
+                            }
+                        }
+                        Some(Err(e)) => {
+                            error!("error in client ({id}): `{e}`");
+                        }
+                        // stream finished
+                        None => {
+                            break CloseReason::Exhausted;
+                        }
                     }
-                }
-                else => {
-                    break CloseReason::Error;
                 }
             }
         };
 
-        let _ = shutdown.send((id, reason)).await;
+        let _ = closing_rx.send(reason);
     });
+
+    closing_tx
 }
 
 pub struct PlayerConn {

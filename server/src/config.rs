@@ -7,7 +7,7 @@ pub const MIN_PLAYER_COUNT: usize = 2;
 /// Maximum number of players able to play cambio
 pub const MAX_PLAYER_COUNT: usize = 8;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default = "defaults::snap_time")]
     pub snap_time_secs: u64,
