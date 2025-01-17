@@ -11,7 +11,7 @@ use tokio::{
     net::{TcpListener, TcpStream},
     sync::mpsc,
 };
-use tracing::info;
+use tracing::{info, trace};
 
 use crate::{
     config::Config,
@@ -37,9 +37,9 @@ pub async fn connect(
         let enabled = Arc::clone(&enabled);
         async move {
             loop {
-                let accepting = enabled.load(Ordering::Relaxed);
                 tokio::select! {
                     Ok((stream, addr)) = listener.accept() => {
+                        let accepting = enabled.load(Ordering::Relaxed);
                         if accepting {
                             setup_client(
                                 stream,
@@ -50,6 +50,7 @@ pub async fn connect(
                             )
                             .await;
                         } else {
+                            trace!("not accepting, dropped {addr}");
                             drop(stream);
                         }
                     }
