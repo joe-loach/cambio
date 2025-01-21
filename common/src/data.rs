@@ -8,6 +8,7 @@ pub enum Stage {
     Playing,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct GameData {
     pub stage: Stage,
     pub deck: Deck,

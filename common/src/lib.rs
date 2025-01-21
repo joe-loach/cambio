@@ -197,6 +197,7 @@ pub const FULL_DECK: [Card; 54] = [
 
 pub const STARTING_DECK_LEN: usize = 4;
 
+#[derive(Serialize, Deserialize)]
 pub struct Deck(Vec<Card>);
 
 impl Deck {

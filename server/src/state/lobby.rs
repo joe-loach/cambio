@@ -1,44 +1,24 @@
-use std::{
-    ops::ControlFlow,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-};
+use std::{ops::ControlFlow, sync::atomic::Ordering};
 
 use common::{
     data::Stage,
     event::{client, server},
 };
-use tokio::sync::mpsc;
 use tracing::{info, trace, warn};
 
-use crate::{
-    channels::ClientEvents,
-    config::{self, Config},
-    player::Command,
-    Channels, GameData, State,
-};
+use crate::{config, player::Command, Data, GameData, State};
 
-pub struct Data {
-    pub config: Config,
-    pub data: GameData,
-    pub channels: Channels,
-    pub events: mpsc::Receiver<ClientEvents>,
-    pub connect_enabled: Arc<AtomicBool>,
-}
+pub async fn lobby(mut data: Data) -> (State, Data) {
+    let Data {
+        config: _,
+        data: ref mut game_data,
+        ref channels,
+        ref mut events,
+        ref connect_enabled,
+    } = data;
 
-pub async fn lobby(
-    Data {
-        config,
-        mut data,
-        channels,
-        mut events,
-        connect_enabled,
-    }: Data,
-) -> State {
     trace!("enter lobby");
-    super::notify_stage_change(Stage::Lobby, &channels, &mut data);
+    super::notify_stage_change(Stage::Lobby, channels, game_data);
 
     let mut server_events = channels.lock().subscribe_to_all();
     connect_enabled.store(true, Ordering::Relaxed);
@@ -46,17 +26,17 @@ pub async fn lobby(
     'waiting: loop {
         info!(
             "waiting for clients ({}/{})",
-            data.lock().player_count(),
+            game_data.lock().player_count(),
             config::MAX_PLAYER_COUNT
         );
 
         'interrupt: loop {
-            let can_start = data.lock().player_count() >= config::MIN_PLAYER_COUNT;
+            let can_start = game_data.lock().player_count() >= config::MIN_PLAYER_COUNT;
 
             tokio::select! {
                 // request to start game
                 Some((id, event)) = events.recv(), if can_start => {
-                    if try_start_game(id, event, &data).is_break() {
+                    if try_start_game(id, event, game_data).is_break() {
                         break 'waiting
                     }
                 }
@@ -75,7 +55,7 @@ pub async fn lobby(
             };
         }
 
-        if data.lock().player_count() == config::MAX_PLAYER_COUNT {
+        if game_data.lock().player_count() == config::MAX_PLAYER_COUNT {
             info!("max lobby capacity reached");
             break 'waiting;
         }
@@ -84,12 +64,7 @@ pub async fn lobby(
     connect_enabled.store(false, Ordering::Relaxed);
 
     trace!("exiting lobby");
-    State::Playing(super::playing::Data {
-        config,
-        data,
-        channels,
-        events,
-    })
+    (State::Playing, data)
 }
 
 fn try_start_game(id: uuid::Uuid, event: client::Event, data: &GameData) -> ControlFlow<()> {

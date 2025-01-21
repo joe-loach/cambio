@@ -12,44 +12,40 @@ use itertools::Itertools as _;
 use tokio::{sync::mpsc, time};
 use tracing::{info, trace};
 
-use crate::{channels::ClientEvents, config::Config, Channels, GameData, State};
+use crate::{channels::ClientEvents, config::Config, Channels, Data, GameData, State};
 
-pub struct Data {
-    pub config: Config,
-    pub data: GameData,
-    pub channels: Channels,
-    pub events: mpsc::Receiver<ClientEvents>,
-}
+pub async fn playing(mut data: Data) -> (State, Data) {
+    let Data {
+        ref config,
+        data: ref mut game_data,
+        ref channels,
+        ref mut events,
+        connect_enabled: _,
+    } = data;
 
-pub async fn playing(
-    Data {
-        config,
-        mut data,
-        channels,
-        mut events,
-    }: Data,
-) -> State {
-    super::notify_stage_change(Stage::Playing, &channels, &mut data);
+    super::notify_stage_change(Stage::Playing, channels, game_data);
 
-    setup(&channels, &mut data).await;
+    setup(channels, game_data).await;
 
     let mut rounds = 0;
 
-    loop {
+    let state = loop {
         channels.lock().broadcast(server::Event::RoundStart(rounds));
 
-        play_round(&config, &mut data, &channels, &mut events, rounds).await;
+        play_round(config, game_data, channels, events, rounds).await;
 
         channels.lock().broadcast(server::Event::RoundEnd);
         channels.lock().broadcast(server::Event::ConfirmNewRound);
 
-        if !new_round(&config, &data, &mut events).await {
+        if !new_round(config, game_data, events).await {
             channels.lock().broadcast(server::Event::GameEnd);
             break State::Exit;
         }
 
         rounds += 1;
-    }
+    };
+
+    (state, data)
 }
 
 async fn play_round(
