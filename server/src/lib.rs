@@ -87,7 +87,10 @@ impl GameServer {
 
                 tokio::select! {
                     res = state::process(&run, task) => {
-                        (state, data) = res;
+                        match res {
+                            Ok(res) => (state, data) = res,
+                            Err(_) => break,
+                        }
                     }
                 }
             }

@@ -10,7 +10,7 @@ use crate::{Channels, GameData};
 pub async fn notify_stage_change(stage: Stage, channels: &Channels, data: &mut GameData) {
     data.lock().stage = stage;
     channels
-.broadcast_event(server::Event::StageChange(stage))
+        .broadcast_event(server::Event::StageChange(stage))
         .await;
 }
 
@@ -20,10 +20,13 @@ pub fn host_id(data: &GameData) -> Option<uuid::Uuid> {
 
 pub type Sender<R> = mpsc::Sender<(BoxFuture<'static, R>, oneshot::Sender<R>)>;
 
-pub async fn process<R>(tx: &Sender<R>, fut: BoxFuture<'static, R>) -> R {
+pub async fn process<R>(
+    tx: &Sender<R>,
+    fut: BoxFuture<'static, R>,
+) -> Result<R, oneshot::error::RecvError> {
     let (resp_tx, resp_rx) = oneshot::channel();
     let _ = tx.send((fut, resp_tx)).await;
-    resp_rx.await.expect("Runner closed")
+    resp_rx.await
 }
 
 /// Interruptable Task Runner
