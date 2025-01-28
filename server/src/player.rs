@@ -4,12 +4,12 @@ use futures::SinkExt;
 use tokio::sync::{mpsc, oneshot};
 use tokio::{net::TcpStream, select};
 use tokio_stream::wrappers::ReceiverStream;
-use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use tokio_stream::StreamExt;
 use tracing::error;
 
 use crate::Channels;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CloseReason {
     Request,
     Exhausted,
@@ -22,7 +22,7 @@ pub enum Command {
 }
 
 pub async fn spawn(
-    channels: &mut Channels,
+    channels: &Channels,
     id: uuid::Uuid,
     mut conn: PlayerConn,
 ) -> oneshot::Receiver<CloseReason> {
@@ -30,22 +30,10 @@ pub async fn spawn(
 
     let (tx, rx) = mpsc::channel(COMMAND_CHANNEL_CAPACITY);
 
-    let (event_sender, broadcast) = {
-        let mut chan = channels.lock();
-        let event_sender = chan.event_sender();
-        let broadcast = chan.subscribe_to_all();
-
-        chan.insert(id, tx);
-
-        (event_sender, broadcast)
-    };
+    let events = channels.register(id, tx).await;
 
     // turn channels into streams
-    let own = Box::pin(ReceiverStream::new(rx));
-    let broadcast = Box::pin(BroadcastStream::new(broadcast).filter_map(|res| res.ok()));
-
-    // combine commands from both sources
-    let mut commands = own.merge(broadcast);
+    let mut commands = Box::pin(ReceiverStream::new(rx));
 
     let (closing_rx, closing_tx) = oneshot::channel();
 
@@ -68,7 +56,7 @@ pub async fn spawn(
                 res = conn.read.next() => {
                     match res {
                         Some(Ok(event)) => {
-                            event_sender.send((id, event.clone())).await.expect("server closed");
+                            let _ = events.send((id, event.clone()));
 
                             if let client::Event::Leave = event {
                                 break CloseReason::Request;

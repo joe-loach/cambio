@@ -1,27 +1,25 @@
 use std::{ops::ControlFlow, sync::atomic::Ordering};
 
-use common::{
-    data::Stage,
-    event::{client, server},
-};
+use common::{data::Stage, event::client};
 use tracing::{info, trace, warn};
 
-use crate::{config, player::Command, Data, GameData, State};
+use crate::{channels::Connection, config, Data, GameData, State};
 
 pub async fn lobby(mut data: Data) -> (State, Data) {
     let Data {
         config: _,
         data: ref mut game_data,
         ref channels,
-        ref mut events,
         ref connect_enabled,
     } = data;
 
     trace!("enter lobby");
-    super::notify_stage_change(Stage::Lobby, channels, game_data);
+    super::notify_stage_change(Stage::Lobby, channels, game_data).await;
 
-    let mut server_events = channels.lock().subscribe_to_all();
     connect_enabled.store(true, Ordering::Relaxed);
+
+    let mut client_events = channels.incoming();
+    let mut connects = channels.connections().subscribe();
 
     'waiting: loop {
         info!(
@@ -35,20 +33,15 @@ pub async fn lobby(mut data: Data) -> (State, Data) {
 
             tokio::select! {
                 // request to start game
-                Some((id, event)) = events.recv(), if can_start => {
+                Ok((id, event)) = client_events.recv(), if can_start => {
                     if try_start_game(id, event, game_data).is_break() {
                         break 'waiting
                     }
                 }
-                // events
-                Ok(Command::Event(event)) = server_events.recv() => {
-                    match event {
-                        // update the logged player count when
-                        // someone joins or leaves
-                        server::Event::Joined { .. }
-                        | server::Event::Left { .. } => break 'interrupt,
-                        _ => (),
-                    }
+                // update the logged player count when someone joins or leaves
+                Ok(Connection::Disconnect(..) | Connection::Connect(..)) = connects.recv() => {
+                    trace!("Someone connected or disconnected");
+                    break 'interrupt
                 }
                 // keep waiting!
                 else => {}

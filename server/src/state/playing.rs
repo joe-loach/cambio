@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use common::{
     data::{self, Stage},
@@ -9,36 +9,39 @@ use common::{
     Deck,
 };
 use itertools::Itertools as _;
-use tokio::{sync::mpsc, time};
+use tokio::time;
 use tracing::{info, trace};
 
-use crate::{channels::ClientEvents, config::Config, Channels, Data, GameData, State};
+use crate::{config::Config, player, Channels, Data, GameData, State};
 
 pub async fn playing(mut data: Data) -> (State, Data) {
     let Data {
         ref config,
         data: ref mut game_data,
         ref channels,
-        ref mut events,
         connect_enabled: _,
     } = data;
 
-    super::notify_stage_change(Stage::Playing, channels, game_data);
+    super::notify_stage_change(Stage::Playing, channels, game_data).await;
 
     setup(channels, game_data).await;
 
     let mut rounds = 0;
 
     let state = loop {
-        channels.lock().broadcast(server::Event::RoundStart(rounds));
+        channels
+            .broadcast_event(server::Event::RoundStart(rounds))
+            .await;
 
-        play_round(config, game_data, channels, events, rounds).await;
+        play_round(config, game_data, channels, rounds).await;
 
-        channels.lock().broadcast(server::Event::RoundEnd);
-        channels.lock().broadcast(server::Event::ConfirmNewRound);
+        channels.broadcast_event(server::Event::RoundEnd).await;
+        channels
+            .broadcast_event(server::Event::ConfirmNewRound)
+            .await;
 
-        if !new_round(config, game_data, events).await {
-            channels.lock().broadcast(server::Event::GameEnd);
+        if !new_round(config, game_data, channels).await {
+            channels.broadcast_event(server::Event::GameEnd).await;
             break State::Exit;
         }
 
@@ -52,7 +55,6 @@ async fn play_round(
     config: &Config,
     data: &mut GameData,
     channels: &Channels,
-    events: &mut mpsc::Receiver<ClientEvents>,
     round_offset: usize,
 ) {
     const FIRST_PLAYER: usize = 0;
@@ -61,21 +63,27 @@ async fn play_round(
     let mut turn = (FIRST_PLAYER + round_offset) % player_count;
 
     loop {
-        channels.lock().broadcast(server::Event::TurnStart {
-            uuid: data.lock().get_player(turn).id(),
-        });
+        let turn_id = data.lock().get_player(turn).id();
+        channels
+            .broadcast_event(server::Event::TurnStart { uuid: turn_id })
+            .await;
 
         let Some(card) = data.lock().deck.draw() else {
-            channels.lock().broadcast(server::Event::EndTurn);
+            channels.broadcast_event(server::Event::EndTurn).await;
 
             break;
         };
-        channels.lock().broadcast(server::Event::DrawCard(card));
+        channels
+            .broadcast_event(server::Event::DrawCard(card))
+            .await;
 
-        channels.lock().broadcast(server::Event::WaitingForDecision);
+        channels
+            .broadcast_event(server::Event::WaitingForDecision)
+            .await;
 
         // read decision
-        while let Some((id, event)) = events.recv().await {
+        let mut incoming = channels.incoming();
+        while let Ok((id, event)) = incoming.recv().await {
             if id == data.lock().get_player(turn).id() {
                 if let client::Event::Decision = event {
                     break;
@@ -83,16 +91,16 @@ async fn play_round(
             }
         }
 
-        channels.lock().broadcast(server::Event::PlayAction);
+        channels.broadcast_event(server::Event::PlayAction).await;
 
-        listen_for_snaps(config, channels, events).await;
+        listen_for_snaps(config, channels).await;
 
-        channels.lock().broadcast(server::Event::EndTurn);
+        channels.broadcast_event(server::Event::EndTurn).await;
 
         turn = (turn + 1) % player_count;
     }
 
-    channels.lock().broadcast(server::Event::CambioCall);
+    channels.broadcast_event(server::Event::CambioCall).await;
 
     {
         let cooldown = time::Duration::from_secs(config.show_all_cooldown);
@@ -100,11 +108,13 @@ async fn play_round(
     }
 
     let winner_result = {
-        let conn = channels.lock();
+        let players = { data.lock().players().to_vec() };
+
+        channels
+            .broadcast_event(server::Event::ShowAll(players))
+            .await;
+
         let data = data.lock();
-
-        conn.broadcast(server::Event::ShowAll(data.players().to_vec()));
-
         let scores = data.players().iter().into_group_map_by(|p| p.score());
         let winner = scores
             .iter()
@@ -126,15 +136,11 @@ async fn play_round(
     };
 
     channels
-        .lock()
-        .broadcast(server::Event::Winner(winner_result));
+        .broadcast_event(server::Event::Winner(winner_result))
+        .await;
 }
 
-async fn new_round(
-    config: &Config,
-    data: &GameData,
-    events: &mut mpsc::Receiver<ClientEvents>,
-) -> bool {
+async fn new_round(config: &Config, data: &GameData, channels: &Channels) -> bool {
     let responses_needed = data.lock().player_count();
 
     let responses = {
@@ -143,9 +149,11 @@ async fn new_round(
 
         let mut responses = HashSet::new();
 
+        let mut incoming = channels.incoming();
+
         loop {
             tokio::select! {
-                Some((id, client::Event::Continue)) = events.recv() => {
+                Ok((id, client::Event::Continue)) = incoming.recv() => {
                     responses.insert(id);
 
                     if responses.len() == responses_needed {
@@ -163,19 +171,18 @@ async fn new_round(
     responses >= responses_needed
 }
 
-async fn listen_for_snaps(
-    config: &Config,
-    channels: &Channels,
-    events: &mut mpsc::Receiver<ClientEvents>,
-) -> Option<uuid::Uuid> {
-    channels.lock().broadcast(server::Event::WaitingForSnap);
+async fn listen_for_snaps(config: &Config, channels: &Channels) -> Option<uuid::Uuid> {
+    channels
+        .broadcast_event(server::Event::WaitingForSnap)
+        .await;
 
     let timeout = time::sleep(time::Duration::from_secs(config.snap_time_secs));
     tokio::pin!(timeout);
 
+    let mut incoming = channels.incoming();
     loop {
         tokio::select! {
-            Some((id, event)) = events.recv() => {
+            Ok((id, event)) = incoming.recv() => {
                 if let client::Event::Snap = event {
                     info!("Player {id} snapped");
                     break Some(id);
@@ -190,7 +197,7 @@ async fn listen_for_snaps(
 }
 
 async fn setup(channels: &Channels, data: &mut GameData) {
-    channels.lock().broadcast(server::Event::Setup);
+    channels.broadcast_event(server::Event::Setup).await;
 
     {
         let deck = &mut data.lock().deck;
@@ -210,19 +217,26 @@ async fn setup(channels: &Channels, data: &mut GameData) {
         }
     }
 
-    channels.lock().broadcast(server::Event::FirstDraw);
+    channels.broadcast_event(server::Event::FirstDraw).await;
 
-    let events = channels.lock().map_id(|id| {
-        let data = data.lock();
-        let p = data
-            .players()
-            .iter()
-            .find(|p| p.id() == id)
-            .expect("player no longer exists");
-        let [a, b] = p.cards()[..2] else {
-            unreachable!()
-        };
-        server::Event::FirstPeek(a, b)
-    });
-    events.await;
+    let first_cards = data
+        .lock()
+        .players()
+        .iter()
+        .map(|p| {
+            let id = p.id();
+            let [a, b] = p.cards()[..2] else {
+                unreachable!()
+            };
+
+            (id, (a, b))
+        })
+        .collect::<HashMap<_, _>>();
+
+    channels
+        .broadcast_map(move |id| {
+            let (a, b) = first_cards[&id];
+            player::Command::Event(server::Event::FirstPeek(a, b))
+        })
+        .await;
 }

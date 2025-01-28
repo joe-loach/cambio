@@ -14,17 +14,18 @@ use tokio::{
 use tracing::{info, trace};
 
 use crate::{
+    channels::Connection,
     config::Config,
-    player::{self, PlayerConn},
-    Channels, GameData, Leave,
+    player::{self, CloseReason, PlayerConn},
+    Channels, GameData,
 };
 
 pub async fn connect(
     config: Config,
     mut data: GameData,
-    mut channels: Channels,
-    leaving: mpsc::Sender<Leave>,
-) -> (Arc<AtomicBool>, tokio::task::JoinHandle<()>) {
+    channels: Channels,
+    disconnects: Disconnects,
+) -> (Arc<AtomicBool>, tokio::task::AbortHandle) {
     let listener = TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], config.server_port)))
         .await
         .expect("failed to create server port");
@@ -33,61 +34,61 @@ pub async fn connect(
 
     let enabled = Arc::new(AtomicBool::new(false));
 
-    let handle = tokio::spawn({
+    let task = tokio::spawn({
         let enabled = Arc::clone(&enabled);
         async move {
-            loop {
-                tokio::select! {
-                    Ok((stream, addr)) = listener.accept() => {
-                        let accepting = enabled.load(Ordering::Relaxed);
-                        if accepting {
-                            setup_client(
-                                stream,
-                                addr,
-                                &mut data,
-                                &mut channels,
-                                leaving.clone()
-                            )
-                            .await;
-                        } else {
-                            trace!("not accepting, dropped {addr}");
-                            drop(stream);
-                        }
-                    }
+            while let Ok((stream, addr)) = listener.accept().await {
+                let accepting = enabled.load(Ordering::Relaxed);
+                if accepting {
+                    setup_client(stream, addr, &mut data, &channels, disconnects.clone()).await;
+                } else {
+                    trace!("not accepting, dropped {addr}");
+                    drop(stream);
                 }
             }
         }
     });
 
-    (enabled, handle)
+    (enabled, task.abort_handle())
 }
 
-pub fn disconnect(
-    data: GameData,
-    channels: Channels,
-    mut leaving: mpsc::Receiver<Leave>,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        while let Some((id, _)) = leaving.recv().await {
+#[derive(Clone)]
+pub struct Disconnects(mpsc::Sender<(uuid::Uuid, CloseReason)>);
+
+pub fn disconnect(data: GameData, channels: Channels) -> (Disconnects, tokio::task::AbortHandle) {
+    let (tx, mut rx) = mpsc::channel(16);
+
+    let task = tokio::spawn(async move {
+        while let Some((id, reason)) = rx.recv().await {
             info!("client {id} has left");
-            let mut chan = channels.lock();
-            let mut data = data.lock();
-            data.remove_player(id);
-            chan.broadcast(server::Event::Left {
-                uuid: id,
-                player_count: data.player_count(),
-            });
-            chan.remove(id);
+            let player_count = {
+                let mut data = data.lock();
+                data.remove_player(id);
+                data.player_count()
+            };
+            channels.remove(id).await;
+            channels
+                .broadcast_event(server::Event::Left {
+                    uuid: id,
+                    player_count,
+                })
+                .await;
+            // let subscribers know theres been a disconnection
+            let _ = channels
+                .connections()
+                .send(Connection::Disconnect(id, reason));
         }
-    })
+    });
+
+    (Disconnects(tx), task.abort_handle())
 }
 
 async fn setup_client(
     stream: TcpStream,
     addr: SocketAddr,
     data: &mut GameData,
-    channels: &mut Channels,
-    leaving: mpsc::Sender<Leave>,
+    channels: &Channels,
+    disconnects: Disconnects,
 ) {
     info!("new connection from {addr}");
     let player = PlayerData::new();
@@ -103,16 +104,20 @@ async fn setup_client(
     // spawn a player task
     let left = player::spawn(channels, player_id, PlayerConn::from(stream)).await;
 
-    // let everyone else know the player shutsdown
+    // let the disconnect handler know
     tokio::spawn(async move {
         if let Ok(reason) = left.await {
-            let _ = leaving.send((player_id, reason)).await;
+            let _ = disconnects.0.send((player_id, reason)).await;
         }
     });
 
     // let everyone know someone has joined
-    channels.lock().broadcast(server::Event::Joined {
-        uuid: player_id,
-        player_count,
-    });
+    channels
+        .broadcast_event(server::Event::Joined {
+            uuid: player_id,
+            player_count,
+        })
+        .await;
+    // let subscribers know theres a new connection
+    let _ = channels.connections().send(Connection::Connect(player_id));
 }
