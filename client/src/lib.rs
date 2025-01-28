@@ -1,3 +1,7 @@
+use common::{
+    event::{client, server},
+    stream,
+};
 use futures::prelude::*;
 use tokio::{
     net::{TcpStream, ToSocketAddrs},
@@ -5,7 +9,6 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
-use common::{event::{server, client}, stream};
 
 pub struct GameClient {
     read: stream::Read<server::Event>,

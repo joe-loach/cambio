@@ -27,7 +27,7 @@ pub async fn spawn(
     mut conn: PlayerConn,
 ) -> oneshot::Receiver<CloseReason> {
     const COMMAND_CHANNEL_CAPACITY: usize = 32;
-    
+
     let (tx, rx) = mpsc::channel(COMMAND_CHANNEL_CAPACITY);
 
     let (event_sender, broadcast) = {
@@ -36,14 +36,13 @@ pub async fn spawn(
         let broadcast = chan.subscribe_to_all();
 
         chan.insert(id, tx);
-        
+
         (event_sender, broadcast)
     };
 
     // turn channels into streams
     let own = Box::pin(ReceiverStream::new(rx));
-    let broadcast =
-        Box::pin(BroadcastStream::new(broadcast).filter_map(|res| res.ok()));
+    let broadcast = Box::pin(BroadcastStream::new(broadcast).filter_map(|res| res.ok()));
 
     // combine commands from both sources
     let mut commands = own.merge(broadcast);
