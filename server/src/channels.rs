@@ -67,9 +67,10 @@ impl Channels {
             .filter(|(_, sender)| !sender.is_closed())
             .map(|(id, sender)| {
                 let sender = sender.clone();
-                let event = f(*id);
-                trace!("sending event: `{event:?}` to {id}");
+                let id = id.clone();
+                let event = f(id);
                 async move {
+                    trace!("sending event: `{event:?}` to {id}");
                     let _ = sender.send(player::Command::Event(event)).await;
                 }
             })
