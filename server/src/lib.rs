@@ -6,21 +6,17 @@ mod state;
 
 use std::sync::{atomic::AtomicBool, Arc};
 
-use channels::ClientEvents;
 use common::event::server;
 use config::Config;
 use futures::FutureExt;
 use parking_lot::Mutex;
-use player::CloseReason;
 use serde::{Deserialize, Serialize};
 use state::{lobby, playing};
-use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 type GameData = Arc<Mutex<common::data::GameData>>;
-type Channels = Arc<Mutex<channels::Channels>>;
-type Leave = (uuid::Uuid, CloseReason);
+type Channels = Arc<channels::Channels>;
 
 #[derive(Serialize, Deserialize)]
 pub enum State {
@@ -34,7 +30,6 @@ pub struct Data {
     pub config: Config,
     pub data: GameData,
     pub channels: Channels,
-    pub events: mpsc::Receiver<ClientEvents>,
     pub connect_enabled: Arc<AtomicBool>,
 }
 
@@ -58,30 +53,26 @@ impl GameServer {
 
     pub async fn run(&self, token: CancellationToken) {
         let data = Arc::new(Mutex::new(Default::default()));
-
-        let (channels, events) = channels::Channels::new();
-        let channels = Arc::new(Mutex::new(channels));
-        let (connect, disconnect) = mpsc::channel(16);
+        let channels = Arc::new(channels::Channels::start());
 
         let run = state::runner();
+
+        let (disconnects, disconnect_handle) =
+            client::disconnect(Arc::clone(&data), Arc::clone(&channels));
 
         let (connect_enabled, connect_handle) = client::connect(
             self.config.clone(),
             Arc::clone(&data),
             Arc::clone(&channels),
-            connect,
+            disconnects,
         )
         .await;
-
-        let disconnect_handle =
-            client::disconnect(Arc::clone(&data), Arc::clone(&channels), disconnect);
 
         let mut state = State::Lobby;
         let mut data = Data {
             config: self.config.clone(),
             data,
             channels: channels.clone(),
-            events,
             connect_enabled,
         };
 
@@ -104,10 +95,10 @@ impl GameServer {
 
         tokio::select! {
             _ = game => {
-                close(channels);
+                close(channels).await;
             }
             _ = token.cancelled() => {
-                close(channels);
+                close(channels).await;
                 connect_handle.abort();
                 disconnect_handle.abort();
             }
@@ -115,8 +106,7 @@ impl GameServer {
     }
 }
 
-fn close(channels: Channels) {
-    let channels = channels.lock();
-    channels.broadcast(server::Event::ServerClosing);
-    channels.send_all(player::Command::Close);
+async fn close(channels: Channels) {
+    channels.broadcast_event(server::Event::ServerClosing).await;
+    channels.broadcast_command(player::Command::Close).await;
 }

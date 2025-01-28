@@ -7,9 +7,11 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::{Channels, GameData};
 
-pub fn notify_stage_change(stage: Stage, channels: &Channels, data: &mut GameData) {
+pub async fn notify_stage_change(stage: Stage, channels: &Channels, data: &mut GameData) {
     data.lock().stage = stage;
-    channels.lock().broadcast(server::Event::StageChange(stage));
+    channels
+.broadcast_event(server::Event::StageChange(stage))
+        .await;
 }
 
 pub fn host_id(data: &GameData) -> Option<uuid::Uuid> {
