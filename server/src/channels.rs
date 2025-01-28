@@ -67,7 +67,7 @@ impl Channels {
             .filter(|(_, sender)| !sender.is_closed())
             .map(|(id, sender)| {
                 let sender = sender.clone();
-                let id = id.clone();
+                let id = *id;
                 let event = f(id);
                 async move {
                     trace!("sending event: `{event:?}` to {id}");
