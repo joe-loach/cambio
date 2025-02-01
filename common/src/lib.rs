@@ -1,6 +1,7 @@
 pub mod data;
 pub mod event;
 pub mod stream;
+pub mod decisions;
 
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
