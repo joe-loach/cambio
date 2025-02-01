@@ -43,6 +43,7 @@ impl GameClient {
         info!("joined lobby");
 
         let mut turn = uuid;
+        let mut card_in_hand = None;
 
         while let Some(msg) = self.read.try_next().await.unwrap() {
             println!("GOT: {:?}", msg);
@@ -59,8 +60,19 @@ impl GameClient {
                 server::Event::TurnStart { uuid, .. } => {
                     turn = uuid;
                 }
+                server::Event::DrawCard(card) if turn == uuid => {
+                    card_in_hand = Some(card);
+                }
                 server::Event::WaitingForDecision if turn == uuid => {
-                    self.write.send(client::Event::Decision).await.unwrap();
+                    if let Some(card) = card_in_hand.take() {
+                        let valid_decisions = common::decisions::valid_set(card).into_vec();
+                        // TODO: let the user choose from the vector
+                        let decision = *valid_decisions.first().unwrap();
+                        self.write
+                            .send(client::Event::Decision(decision))
+                            .await
+                            .unwrap();
+                    }
                 }
                 server::Event::WaitingForSnap if turn != uuid => {
                     self.write.send(client::Event::Snap).await.unwrap();

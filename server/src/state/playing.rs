@@ -83,13 +83,18 @@ async fn play_round(
 
         // read decision
         let mut incoming = channels.incoming();
-        while let Ok((id, event)) = incoming.recv().await {
-            if id == data.lock().get_player(turn).id() {
-                if let client::Event::Decision = event {
-                    break;
+        let decision = loop {
+            if let Ok((id, event)) = incoming.recv().await {
+                if id == data.lock().get_player(turn).id() {
+                    if let client::Event::Decision(decision) = event {
+                        break decision;
+                    }
                 }
+            } else {
+                panic!("error receiving decision");
             }
-        }
+        };
+        info!("client {turn_id} chose {decision:?}");
 
         channels.broadcast_event(server::Event::PlayAction).await;
 
