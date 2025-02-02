@@ -65,7 +65,7 @@ async fn play_round(
     loop {
         let turn_id = data.lock().get_player(turn).id();
         channels
-            .broadcast_event(server::Event::TurnStart { uuid: turn_id })
+            .broadcast_event(server::Event::TurnStart { id: turn_id })
             .await;
 
         let Some(card) = data.lock().deck.draw() else {
