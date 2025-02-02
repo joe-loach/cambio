@@ -57,8 +57,7 @@ impl GameServer {
 
         let run = state::runner();
 
-        let (disconnects, disconnect_handle) =
-            client::disconnect(Arc::clone(&data), Arc::clone(&channels));
+        let (disconnects, disconnect_handle) = client::disconnect(Arc::clone(&channels));
 
         let (connect_enabled, connect_handle) = client::connect(
             self.config.clone(),
