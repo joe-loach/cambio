@@ -39,8 +39,13 @@ pub async fn lobby(mut data: Data) -> (State, Data) {
                     }
                 }
                 // update the logged player count when someone joins or leaves
-                Ok(Connection::Disconnect(..) | Connection::Connect(..)) = connects.recv() => {
+                Ok(conn @ (Connection::Disconnect(..) | Connection::Connect(..))) = connects.recv() => {
                     trace!("Someone connected or disconnected");
+                    // when someone leaves during the lobby phase,
+                    // we remove them from the game data
+                    if let Connection::Disconnect(id, ..) = conn {
+                        game_data.lock().remove_player(id);
+                    }
                     break 'interrupt
                 }
                 // keep waiting!
