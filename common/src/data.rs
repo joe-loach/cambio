@@ -28,10 +28,17 @@ impl GameData {
         self.players.len()
     }
 
-    pub fn add_player(&mut self, player: PlayerData) -> usize {
-        let index = self.players.len();
+    pub fn exists(&self, id: uuid::Uuid) -> bool {
+        self.players.iter().any(|data| data.id == id)
+    }
+
+    pub fn try_add_player(&mut self, player: PlayerData) -> bool {
+        if self.exists(player.id) {
+            return false;
+        }
+
         self.players.push(player);
-        index
+        true
     }
 
     pub fn remove_player(&mut self, id: uuid::Uuid) -> bool {
