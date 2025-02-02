@@ -9,21 +9,29 @@ use crate::data::{PlayerData, Stage};
 pub enum Event {
     /// The `Stage` has changed
     StageChange(Stage),
+    /// Ready to start serving event loop for client.
+    Enter,
     /// The game has restarted
     Restart,
+    /// Information about the lobby.
+    /// 
+    /// Can be requested any time.
+    LobbyInfo {
+        player_count: usize,
+    },
+    /// Response to client `Join` request.
+    /// 
+    /// Must not be broadcasted.
+    AssignId {
+        id: Uuid,
+    },
     /// A player joined
     Joined {
-        /// The unique id of the player
-        uuid: Uuid,
-        /// The number of players in the lobby
-        player_count: usize,
+        id: Uuid,
     },
     /// A player left
     Left {
-        /// The unique id of the player
-        uuid: Uuid,
-        /// The number of players in the lobby
-        player_count: usize,
+        id: Uuid,
     },
     /// Start of a round
     RoundStart(usize),
@@ -36,7 +44,7 @@ pub enum Event {
     /// Players view their front 2 cards
     FirstPeek(Card, Card),
     /// Turn of player has started
-    TurnStart { uuid: Uuid },
+    TurnStart { id: Uuid },
     /// Card is drawn from deck
     DrawCard(Card),
     /// Waiting for the player to make a decision
