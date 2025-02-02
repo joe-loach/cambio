@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use common::event::{client, server};
 use futures::future::JoinAll;
 use parking_lot::RwLock;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::trace;
 
 use crate::player;
@@ -17,7 +17,12 @@ pub enum Connection {
     Connect(uuid::Uuid),
 }
 
-enum Process {
+struct Process {
+    kind: ProcessKind,
+    sync: oneshot::Sender<()>,
+}
+
+enum ProcessKind {
     Insert {
         id: uuid::Uuid,
         tx: mpsc::Sender<player::Command>,
@@ -63,18 +68,42 @@ impl Channels {
         id: uuid::Uuid,
         tx: mpsc::Sender<player::Command>,
     ) -> broadcast::Sender<ClientEvents> {
-        let _ = self.out.send(Process::Insert { id, tx }).await;
+        let (sync, finished) = oneshot::channel();
+        let _ = self
+            .out
+            .send(Process {
+                kind: ProcessKind::Insert { id, tx },
+                sync,
+            })
+            .await;
+        finished.await.expect("failed to sync");
         self.incoming.clone()
     }
 }
 
 impl Channels {
     pub async fn remove(&self, id: uuid::Uuid) {
-        let _ = self.out.send(Process::Remove { id }).await;
+        let (sync, finished) = oneshot::channel();
+        let _ = self
+            .out
+            .send(Process {
+                kind: ProcessKind::Remove { id },
+                sync,
+            })
+            .await;
+        finished.await.expect("failed to sync");
     }
 
     pub async fn send(&self, command: player::Command, id: uuid::Uuid) {
-        let _ = self.out.send(Process::Send(SendTo::One(command, id))).await;
+        let (sync, finished) = oneshot::channel();
+        let _ = self
+            .out
+            .send(Process {
+                kind: ProcessKind::Send(SendTo::One(command, id)),
+                sync,
+            })
+            .await;
+        finished.await.expect("failed to sync");
     }
 
     pub async fn broadcast_event(&self, event: server::Event) {
@@ -82,19 +111,30 @@ impl Channels {
     }
 
     pub async fn broadcast_command(&self, command: player::Command) {
+        let (sync, finished) = oneshot::channel();
         let _ = self
             .out
-            .send(Process::Send(SendTo::All(Box::new(move |_| {
-                command.clone()
-            }))))
+            .send(Process {
+                kind: ProcessKind::Send(SendTo::All(Box::new(move |_| command.clone()))),
+                sync,
+            })
             .await;
+        finished.await.expect("failed to sync");
     }
 
     pub async fn broadcast_map<F>(&self, f: F)
     where
         F: Fn(uuid::Uuid) -> player::Command + Send + 'static,
     {
-        let _ = self.out.send(Process::Send(SendTo::All(Box::new(f)))).await;
+        let (sync, finished) = oneshot::channel();
+        let _ = self
+            .out
+            .send(Process {
+                kind: ProcessKind::Send(SendTo::All(Box::new(f))),
+                sync,
+            })
+            .await;
+        finished.await.expect("failed to sync");
     }
 }
 
@@ -121,15 +161,18 @@ async fn send_aggregator(mut out_rx: mpsc::Receiver<Process>) {
     )));
 
     while let Some(proc) = out_rx.recv().await {
-        match proc {
-            Process::Send(send_to) => {
-                tokio::spawn(handle_send(Arc::clone(&map), send_to));
+        let sync = proc.sync;
+        match proc.kind {
+            ProcessKind::Send(send_to) => {
+                tokio::spawn(handle_send(Arc::clone(&map), send_to, sync));
             }
-            Process::Insert { id, tx } => {
+            ProcessKind::Insert { id, tx } => {
                 map.write().insert(id, tx);
+                let _ = sync.send(());
             }
-            Process::Remove { id } => {
+            ProcessKind::Remove { id } => {
                 map.write().remove(&id);
+                let _ = sync.send(());
             }
         }
     }
@@ -138,6 +181,7 @@ async fn send_aggregator(mut out_rx: mpsc::Receiver<Process>) {
 async fn handle_send(
     map: Arc<RwLock<HashMap<uuid::Uuid, mpsc::Sender<player::Command>>>>,
     send: SendTo,
+    sync: oneshot::Sender<()>,
 ) {
     match send {
         SendTo::All(cmd) => {
@@ -156,6 +200,7 @@ async fn handle_send(
                 })
                 .collect::<JoinAll<_>>();
             join.await;
+            let _ = sync.send(());
         }
         SendTo::One(cmd, id) => {
             let sender = map.read().get(&id).cloned();
@@ -163,6 +208,7 @@ async fn handle_send(
                 trace!("sending cmd: `{cmd:?}` to {id}");
                 let _ = sender.send(cmd).await;
             }
+            let _ = sync.send(());
         }
     }
 }
