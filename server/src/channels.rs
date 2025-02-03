@@ -164,7 +164,11 @@ async fn send_aggregator(mut out_rx: mpsc::Receiver<Process>) {
         let sync = proc.sync;
         match proc.kind {
             ProcessKind::Send(send_to) => {
-                tokio::spawn(handle_send(Arc::clone(&map), send_to, sync));
+                let map = Arc::clone(&map);
+                tokio::spawn(async move {
+                    handle_send(map, send_to).await;
+                    let _ = sync.send(());
+                });
             }
             ProcessKind::Insert { id, tx } => {
                 map.write().insert(id, tx);
@@ -181,7 +185,6 @@ async fn send_aggregator(mut out_rx: mpsc::Receiver<Process>) {
 async fn handle_send(
     map: Arc<RwLock<HashMap<uuid::Uuid, mpsc::Sender<player::Command>>>>,
     send: SendTo,
-    sync: oneshot::Sender<()>,
 ) {
     match send {
         SendTo::All(cmd) => {
@@ -200,7 +203,6 @@ async fn handle_send(
                 })
                 .collect::<JoinAll<_>>();
             join.await;
-            let _ = sync.send(());
         }
         SendTo::One(cmd, id) => {
             let sender = map.read().get(&id).cloned();
@@ -208,7 +210,6 @@ async fn handle_send(
                 trace!("sending cmd: `{cmd:?}` to {id}");
                 let _ = sender.send(cmd).await;
             }
-            let _ = sync.send(());
         }
     }
 }
