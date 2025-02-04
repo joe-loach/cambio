@@ -1,5 +1,5 @@
 [workspace]
-members = ["cli", "client", "server", "web"]
+members = ["cli", "client", "game-server", "web"]
 resolver = "2"
 
 [workspace.package]
@@ -13,7 +13,7 @@ documentation = "https://github.com/joe-loach/cambio"
 cli = { path = "cli" }
 client = { path = "client" }
 common = { path = "common" }
-server = { path = "server" }
+game-server = { path = "game-server" }
 web = { path = "web"}
 
 anyhow = "1.0"

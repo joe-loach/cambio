@@ -84,8 +84,8 @@ dependencies = [
  "anyhow",
  "client",
  "common",
+ "game-server",
  "pico-args",
- "server",
  "tokio",
  "tokio-util",
  "tracing",
@@ -235,6 +235,26 @@ dependencies = [
  "pin-project-lite",
  "pin-utils",
  "slab",
+]
+
+[[package]]
+name = "game-server"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "common",
+ "futures",
+ "itertools",
+ "parking_lot",
+ "rand",
+ "serde",
+ "tokio",
+ "tokio-serde",
+ "tokio-stream",
+ "tokio-util",
+ "toml",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -613,26 +633,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "87607cb1398ed59d48732e575a4c28a7a8ebf2454b964fe3f224f2afc07909e1"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "server"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "common",
- "futures",
- "itertools",
- "parking_lot",
- "rand",
- "serde",
- "tokio",
- "tokio-serde",
- "tokio-stream",
- "tokio-util",
- "toml",
- "tracing",
- "uuid",
 ]
 
 [[package]]

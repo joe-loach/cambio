@@ -4,7 +4,7 @@ mod log;
 use std::net::IpAddr;
 
 use client::GameClient;
-use server::{self, GameServer};
+use game_server::{self, GameServer};
 use tokio::{select, task};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
@@ -17,7 +17,7 @@ async fn start_client() -> anyhow::Result<()> {
 
         let addr = (
             "127.0.0.1".parse::<IpAddr>().unwrap(),
-            server::config::defaults::port(),
+            game_server::config::defaults::port(),
         );
 
         task::spawn(async move {
