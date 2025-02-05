@@ -1,0 +1,14 @@
+[package]
+name = "lobby-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+parking_lot = { workspace = true }
+axum = "0.8"
+nanoid = "0.4"
