@@ -3,7 +3,12 @@ use std::{net::SocketAddr, sync::Arc};
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 
-use crate::{db::DbError, game, id::Id, AppState, Game};
+use crate::{
+    db::DbError,
+    id::Id,
+    models::game::{self, Game},
+    AppState,
+};
 
 #[derive(Deserialize)]
 pub struct CreateGameRequest {

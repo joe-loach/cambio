@@ -4,7 +4,7 @@ use axum::{extract::Path, http::StatusCode, response::IntoResponse, Extension, J
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::{db, id::Id, AppState, Game};
+use crate::{db, id::Id, models::game::Game, AppState};
 
 #[derive(Serialize)]
 pub struct JoinGameResponse {
