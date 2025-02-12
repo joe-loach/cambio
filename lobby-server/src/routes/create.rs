@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 
-use crate::{game, id::Id, Game, GameList};
+use crate::{db::DbError, game, id::Id, Game};
 
 #[derive(Deserialize)]
 pub struct CreateGameRequest {
@@ -18,13 +18,13 @@ pub struct CreateGameResponse {
 }
 
 pub async fn create_game(
-    Extension(games): Extension<GameList>,
+    Extension(state): Extension<crate::State<'_>>,
     Json(CreateGameRequest {
         name,
         visibility,
         server_addr,
     }): Json<CreateGameRequest>,
-) -> Json<CreateGameResponse> {
+) -> Result<Json<CreateGameResponse>, DbError> {
     let game_id = Id::new();
 
     let new_game = Game::new(
@@ -33,7 +33,9 @@ pub async fn create_game(
         game::GameInfo { name, server_addr },
     );
 
-    games.write().push(new_game);
+    let rw = state.db.read_write()?;
+    rw.insert(new_game)?;
+    rw.commit()?;
 
-    Json(CreateGameResponse { id: game_id })
+    Ok(Json(CreateGameResponse { id: game_id }))
 }

@@ -1,10 +1,10 @@
+mod db;
 mod game;
 mod id;
 mod routes;
 
 use game::Game;
 use id::Id;
-use parking_lot::RwLock;
 use std::sync::Arc;
 
 use axum::{
@@ -12,17 +12,23 @@ use axum::{
     Extension, Router,
 };
 
-type GameList = Arc<RwLock<Vec<Game>>>;
+pub struct AppState<'a> {
+    db: db::Db<'a>
+}
+
+pub type State<'a> = Arc<AppState<'a>>;
 
 #[tokio::main]
 async fn main() {
-    let games = GameList::default();
+    let db = db::establish_connection().expect("failed to connect to database");
+
+    let state = Arc::new(AppState { db });
 
     let app = Router::new()
         .route("/create", post(routes::create::create_game))
         .route("/join/{game_id}", get(routes::join::join_game))
         .route("/list", get(routes::list::game_list))
-        .layer(Extension(games));
+        .layer(Extension(state));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 

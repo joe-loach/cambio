@@ -1,11 +1,16 @@
 use std::net::SocketAddr;
 
+use native_db::*;
+use native_model::{native_model, Model};
 use serde::{Deserialize, Serialize};
 
 use crate::Id;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[native_model(id = 1, version = 1)]
+#[native_db]
 pub(crate) struct Game {
+    #[primary_key]
     pub(crate) id: Id,
     visibility: Visibility,
     pub(crate) info: GameInfo,
