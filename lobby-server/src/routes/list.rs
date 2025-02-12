@@ -1,9 +1,13 @@
 use std::sync::Arc;
 
-use axum::{Extension, Json};
+use axum::{extract::State, Json};
 use serde::Serialize;
 
-use crate::{db::DbError, models::game::{self, Game}, AppState};
+use crate::{
+    db::DbError,
+    models::game::{self, Game},
+    AppState,
+};
 
 #[derive(Serialize)]
 pub struct GameListResponse {
@@ -11,7 +15,7 @@ pub struct GameListResponse {
 }
 
 pub async fn game_list(
-    Extension(state): Extension<Arc<AppState<'_>>>,
+    State(state): State<Arc<AppState<'_>>>,
 ) -> Result<Json<GameListResponse>, DbError> {
     let r = state.db.read()?;
 
