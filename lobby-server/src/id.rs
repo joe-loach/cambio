@@ -4,6 +4,16 @@ use serde::{Deserialize, Serialize};
 #[serde(transparent)]
 pub struct Id(String);
 
+impl native_db::ToKey for Id {
+    fn to_key(&self) -> native_db::Key {
+        native_db::Key::new(self.0.as_bytes().to_vec())
+    }
+
+    fn key_names() -> Vec<String> {
+        vec!["Id".to_string()]
+    }
+}
+
 pub const VALID_ID_CHARS: [char; 9] = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
 impl Id {
