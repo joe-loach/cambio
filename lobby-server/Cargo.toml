@@ -17,7 +17,16 @@ serde = { workspace = true }
 parking_lot = { workspace = true }
 
 axum = "0.8"
+tower-http = { version = "0.6.2", features = ["cors"] }
+
 nanoid = "0.4"
 
+dotenvy = "0.15"
+
+# Both versions are tied together
 native_db = "0.8.1"
 native_model = "0.4.20"
+
+argon2 = { version = "0.5.3", features = ["std"] }
+jsonwebtoken = "9.3"
+jiff = "0.2.0"
