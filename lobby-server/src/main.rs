@@ -2,6 +2,7 @@ mod db;
 mod models;
 mod id;
 mod routes;
+mod error;
 
 use id::Id;
 use std::sync::Arc;
