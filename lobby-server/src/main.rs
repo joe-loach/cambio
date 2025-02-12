@@ -1,9 +1,8 @@
 mod db;
-mod game;
+mod models;
 mod id;
 mod routes;
 
-use game::Game;
 use id::Id;
 use std::sync::Arc;
 
