@@ -6,6 +6,7 @@ use native_db::{Builder, Database, Models, ToInput, ToKey};
 static MODELS: LazyLock<Models> = LazyLock::new(|| {
     let mut models = Models::new();
     models.define::<crate::models::game::Game>().unwrap();
+    models.define::<crate::models::user::User>().unwrap();
     models
 });
 
