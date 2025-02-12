@@ -13,10 +13,8 @@ use axum::{
 };
 
 pub struct AppState<'a> {
-    db: db::Db<'a>
+    db: db::Db<'a>,
 }
-
-pub type State<'a> = Arc<AppState<'a>>;
 
 #[tokio::main]
 async fn main() {

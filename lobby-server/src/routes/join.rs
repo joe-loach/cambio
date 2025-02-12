@@ -1,10 +1,10 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{extract::Path, http::StatusCode, response::IntoResponse, Extension, Json};
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::{db, id::Id, Game};
+use crate::{db, id::Id, AppState, Game};
 
 #[derive(Serialize)]
 pub struct JoinGameResponse {
@@ -21,7 +21,7 @@ pub enum JoinError {
 
 pub async fn join_game(
     Path(game_id): Path<Id>,
-    Extension(state): Extension<crate::State<'_>>,
+    Extension(state): Extension<Arc<AppState<'_>>>,
 ) -> Result<Json<JoinGameResponse>, JoinError> {
     let r = state.db.read()?;
 

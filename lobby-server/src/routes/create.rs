@@ -1,9 +1,9 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 
-use crate::{db::DbError, game, id::Id, Game};
+use crate::{db::DbError, game, id::Id, AppState, Game};
 
 #[derive(Deserialize)]
 pub struct CreateGameRequest {
@@ -18,7 +18,7 @@ pub struct CreateGameResponse {
 }
 
 pub async fn create_game(
-    Extension(state): Extension<crate::State<'_>>,
+    Extension(state): Extension<Arc<AppState<'_>>>,
     Json(CreateGameRequest {
         name,
         visibility,
