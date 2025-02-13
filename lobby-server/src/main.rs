@@ -1,6 +1,7 @@
 mod db;
 mod error;
 mod id;
+mod log;
 mod middleware;
 mod models;
 mod routes;
@@ -47,11 +48,14 @@ fn router(state: Arc<AppState<'static>>) -> Router {
         .route("/login", get(routes::login::login_handler))
         .merge(auth_routes)
         .with_state(state)
+        .layer(log::layer())
         .layer(cors)
 }
 
 #[tokio::main]
 async fn main() {
+    log::register();
+
     dotenvy::dotenv().expect("failed to load config");
 
     let db = db::establish_connection().expect("failed to connect to database");

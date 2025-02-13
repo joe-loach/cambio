@@ -1,4 +1,4 @@
-use std::sync::LazyLock;
+use std::{env, sync::LazyLock};
 
 use native_db::{Builder, Database, Models, ToInput, ToKey};
 
@@ -15,7 +15,8 @@ pub struct Db<'db> {
 }
 
 pub fn establish_connection<'db>() -> anyhow::Result<Db<'db>> {
-    let db = Builder::new().create_in_memory(&MODELS)?;
+    let path = env::var("DATABASE_PATH")?;
+    let db = Builder::new().create(&MODELS, path)?;
 
     Ok(Db { inner: db })
 }
