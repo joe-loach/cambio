@@ -33,4 +33,4 @@ native_model = "0.4.20"
 
 argon2 = { version = "0.5.3", features = ["std"] }
 jsonwebtoken = "9.3"
-jiff = "0.2.0"
+time = "0.3"

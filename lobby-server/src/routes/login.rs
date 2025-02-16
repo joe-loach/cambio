@@ -5,7 +5,6 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use jiff::{Timestamp, ToSpan};
 use jsonwebtoken::{encode, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -56,16 +55,14 @@ pub async fn login_handler(
     let hash = PasswordHash::new(&user.password)?;
     Argon2::default().verify_password(body.password.as_bytes(), &hash)?;
 
-    let iat = Timestamp::now();
-    let expiry_time = 7.days();
-    let exp = iat + expiry_time;
+    let iat = jsonwebtoken::get_current_timestamp();
+    let expiry_time = time::Duration::days(7);
+    let exp = iat.saturating_add(expiry_time.whole_seconds().unsigned_abs());
 
     let claims = TokenClaim {
         sub: user.name,
-        // convert timestamps to seconds since unix epoch as per
-        // https://www.rfc-editor.org/rfc/rfc7519#section-2
-        exp: exp.as_second().unsigned_abs(),
-        iat: iat.as_second().unsigned_abs(),
+        exp,
+        iat,
     };
 
     let token = encode(&Header::default(), &claims, &ENCODING_KEY)?;
