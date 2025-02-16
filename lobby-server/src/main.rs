@@ -1,6 +1,7 @@
 mod db;
 mod error;
 mod id;
+mod limiter;
 mod log;
 mod middleware;
 mod models;
@@ -9,7 +10,8 @@ mod token;
 
 use id::Id;
 use middleware::auth;
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
+use tower_governor::GovernorLayer;
 use tower_http::cors::CorsLayer;
 
 use axum::{
@@ -17,6 +19,7 @@ use axum::{
         header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},
         Method,
     },
+    response::IntoResponse,
     routing::{get, post},
     Router,
 };
@@ -33,8 +36,24 @@ fn router(state: Arc<AppState<'static>>) -> Router {
         .allow_credentials(true)
         .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE]);
 
-    // routes that require auth
-    let auth_routes = Router::new()
+    // Create rate limiter
+    let secure_governor = Arc::new(limiter::secure());
+    tokio::spawn({
+        let limiter = secure_governor.limiter().clone();
+        limiter::cleanup_limiter_task(move || limiter.retain_recent())
+    });
+
+    // Routes that provide authorization
+    let authorization_providers = Router::new()
+        .route("/register", post(routes::register::register_user_handler))
+        .route("/login", get(routes::login::login_handler))
+        // make sure these routes are rate limited
+        .layer(GovernorLayer {
+            config: secure_governor.clone(),
+        });
+
+    // Routes that require the user to be logged in and bearing a JWT
+    let requires_token = Router::new()
         .route("/create", post(routes::create::create_game))
         .route("/join/{game_id}", get(routes::join::join_game))
         .layer(axum::middleware::from_fn_with_state(
@@ -43,10 +62,10 @@ fn router(state: Arc<AppState<'static>>) -> Router {
         ));
 
     Router::new()
+        .route("/", get(|| async { "hello".into_response() }))
         .route("/list", get(routes::list::game_list))
-        .route("/register", post(routes::register::register_user_handler))
-        .route("/login", get(routes::login::login_handler))
-        .merge(auth_routes)
+        .merge(authorization_providers)
+        .merge(requires_token)
         .with_state(state)
         .layer(log::layer())
         .layer(cors)
@@ -66,7 +85,10 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
-    axum::serve(listener, app.into_make_service())
-        .await
-        .unwrap()
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap()
 }
