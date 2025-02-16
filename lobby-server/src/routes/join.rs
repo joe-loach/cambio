@@ -12,8 +12,9 @@ use thiserror::Error;
 use crate::{db, id::Id, models::game::Game, AppState};
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(serde::Deserialize))]
 pub struct JoinGameResponse {
-    server_addr: SocketAddr,
+    pub(crate) server_addr: SocketAddr,
 }
 
 #[derive(Debug, Error)]

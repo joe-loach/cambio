@@ -18,8 +18,9 @@ pub struct CreateGameRequest {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(Deserialize))]
 pub struct CreateGameResponse {
-    id: Id,
+    pub(crate) id: Id,
 }
 
 pub async fn create_game(

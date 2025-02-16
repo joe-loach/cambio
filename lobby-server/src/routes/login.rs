@@ -22,8 +22,9 @@ pub struct LoginRequest {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(Deserialize))]
 pub struct LoginResponse {
-    token: String,
+    pub(crate) token: String,
 }
 
 #[derive(Debug, Error)]

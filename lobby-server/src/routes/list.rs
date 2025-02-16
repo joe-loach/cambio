@@ -10,8 +10,9 @@ use crate::{
 };
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(serde::Deserialize))]
 pub struct GameListResponse {
-    game_info: Vec<game::GameInfo>,
+    pub(crate) game_info: Vec<game::GameInfo>,
 }
 
 pub async fn game_list(

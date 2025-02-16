@@ -8,6 +8,9 @@ mod models;
 mod routes;
 mod token;
 
+#[cfg(test)]
+mod integration;
+
 use id::Id;
 use middleware::auth;
 use std::{net::SocketAddr, sync::Arc};

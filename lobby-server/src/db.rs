@@ -3,7 +3,7 @@ use std::{env, sync::LazyLock};
 use native_db::{Builder, Database, Models, ToInput, ToKey};
 
 /// Add Models that can be "understood" by the database here.
-static MODELS: LazyLock<Models> = LazyLock::new(|| {
+pub static MODELS: LazyLock<Models> = LazyLock::new(|| {
     let mut models = Models::new();
     models.define::<crate::models::game::Game>().unwrap();
     models.define::<crate::models::user::User>().unwrap();
@@ -28,6 +28,17 @@ impl Db<'_> {
 
     pub fn read(&self) -> Result<RTransaction<'_>> {
         Ok(RTransaction(self.inner.r_transaction()?))
+    }
+}
+
+#[cfg(test)]
+impl Db<'_> {
+    pub fn from_inner(inner: Database) -> Db {
+        Db { inner }
+    }
+
+    pub fn with_inner<R>(&self, with: impl FnOnce(&Database) -> R) -> R {
+        with(&self.inner)
     }
 }
 

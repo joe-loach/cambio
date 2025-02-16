@@ -29,6 +29,13 @@ impl Id {
     }
 }
 
+#[cfg(test)]
+impl Id {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum ParseError {
     InvalidLength(usize),
