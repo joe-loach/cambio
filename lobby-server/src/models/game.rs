@@ -34,6 +34,7 @@ impl Game {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub(crate) enum Visibility {
     Public,
     Private,
