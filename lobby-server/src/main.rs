@@ -50,6 +50,7 @@ fn router(state: Arc<AppState<'static>>) -> Router {
     let authorization_providers = Router::new()
         .route("/register", post(routes::register::register_user_handler))
         .route("/login", get(routes::login::login_handler))
+        .route("/refresh", get(routes::refresh::refresh_token))
         // make sure these routes are rate limited
         .layer(GovernorLayer {
             config: secure_governor.clone(),

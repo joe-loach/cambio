@@ -5,15 +5,12 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use jsonwebtoken::{encode, EncodingKey, Header};
+use axum_extra::extract::{cookie::Cookie, CookieJar};
 use serde::{Deserialize, Serialize};
-use std::{
-    env,
-    sync::{Arc, LazyLock},
-};
+use std::sync::Arc;
 use thiserror::Error;
 
-use crate::{db, error::INTERNAL_ERROR, models::user::User, token::TokenClaim, AppState};
+use crate::{db, error::INTERNAL_ERROR, models::user::User, token::REFRESH_TOKEN_COOKIE, AppState};
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
@@ -24,7 +21,7 @@ pub struct LoginRequest {
 #[derive(Serialize)]
 #[cfg_attr(test, derive(Deserialize))]
 pub struct LoginResponse {
-    pub(crate) token: String,
+    pub(crate) access_token: String,
 }
 
 #[derive(Debug, Error)]
@@ -39,14 +36,11 @@ pub enum LoginError {
     JwtEncode(#[from] jsonwebtoken::errors::Error),
 }
 
-static ENCODING_KEY: LazyLock<EncodingKey> = LazyLock::new(|| {
-    EncodingKey::from_secret(env::var("JWT_SECRET").expect("Secret in config").as_bytes())
-});
-
 pub async fn login_handler(
     State(state): State<Arc<AppState<'_>>>,
+    jar: CookieJar,
     Json(body): Json<LoginRequest>,
-) -> Result<Json<LoginResponse>, LoginError> {
+) -> Result<(CookieJar, Json<LoginResponse>), LoginError> {
     let r = state.db.read()?;
 
     let Some(user) = r.get().primary::<User>(body.username)? else {
@@ -56,19 +50,14 @@ pub async fn login_handler(
     let hash = PasswordHash::new(&user.password)?;
     Argon2::default().verify_password(body.password.as_bytes(), &hash)?;
 
-    let iat = jsonwebtoken::get_current_timestamp();
-    let expiry_time = time::Duration::days(7);
-    let exp = iat.saturating_add(expiry_time.whole_seconds().unsigned_abs());
+    let issued_at = jsonwebtoken::get_current_timestamp();
 
-    let claims = TokenClaim {
-        sub: user.name,
-        exp,
-        iat,
-    };
+    let access_token = crate::token::encode_access_token(issued_at, user.name.clone())?;
+    let refresh_token = crate::token::encode_refresh_token(issued_at, user.name)?;
 
-    let token = encode(&Header::default(), &claims, &ENCODING_KEY)?;
+    let jar = jar.add(Cookie::new(REFRESH_TOKEN_COOKIE, refresh_token));
 
-    Ok(Json(LoginResponse { token }))
+    Ok((jar, Json(LoginResponse { access_token })))
 }
 
 impl IntoResponse for LoginError {

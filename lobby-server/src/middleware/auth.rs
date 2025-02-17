@@ -13,10 +13,14 @@ use axum::{
 use jsonwebtoken::{decode, DecodingKey, Validation};
 use thiserror::Error;
 
-use crate::{db, error::INTERNAL_ERROR, models::user::User, token::TokenClaim, AppState};
+use crate::{db, error::INTERNAL_ERROR, models::user::User, token::AccessClaim, AppState};
 
-static DECODING_KEY: LazyLock<DecodingKey> = LazyLock::new(|| {
-    DecodingKey::from_secret(env::var("JWT_SECRET").expect("Secret in config").as_bytes())
+static ACCESS_DECODING_KEY: LazyLock<DecodingKey> = LazyLock::new(|| {
+    DecodingKey::from_secret(
+        env::var("ACCESS_TOKEN_SECRET")
+            .expect("Secret in config")
+            .as_bytes(),
+    )
 });
 
 #[derive(Debug, Error)]
@@ -53,7 +57,7 @@ pub async fn auth(
         .and_then(|header| header.strip_prefix("Bearer "))
         .ok_or(AuthError::Unauthorized)?;
 
-    let token = decode::<TokenClaim>(token, &DECODING_KEY, &Validation::default())?;
+    let token = decode::<AccessClaim>(token, &ACCESS_DECODING_KEY, &Validation::default())?;
 
     let r = state.db.read()?;
     let Some(user) = r.get().primary::<User>(token.claims.sub)? else {

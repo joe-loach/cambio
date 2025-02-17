@@ -45,7 +45,7 @@ async fn register_create_game_and_list_then_join() -> anyhow::Result<()> {
     let response = login.json::<routes::login::LoginResponse>();
 
     // extract the token
-    let token = response.token;
+    let token = response.access_token;
     println!("{}", token);
 
     // create a new game
