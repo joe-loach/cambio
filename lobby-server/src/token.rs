@@ -38,11 +38,13 @@ pub fn encode_access_token(
         )
     });
 
+    const ACCESS_EXPIRY: time::Duration = time::Duration::minutes(15);
+
     encode(
         &Header::default(),
         &AccessClaim {
             sub,
-            exp: expires_in(issued_at, time::Duration::minutes(15)),
+            exp: expires_in(issued_at, ACCESS_EXPIRY),
             iat: issued_at,
         },
         &ACCESS_ENCODING_KEY,
@@ -65,11 +67,13 @@ pub fn encode_refresh_token(
         )
     });
 
+    const REFRESH_EXPIRY: time::Duration = time::Duration::days(7);
+
     encode(
         &Header::default(),
         &RefreshClaim {
             sub,
-            exp: expires_in(issued_at, time::Duration::minutes(15)),
+            exp: expires_in(issued_at, REFRESH_EXPIRY),
             iat: issued_at,
         },
         &REFRESH_ENCODING_KEY,
