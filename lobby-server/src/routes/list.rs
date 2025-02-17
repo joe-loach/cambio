@@ -1,18 +1,22 @@
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{extract::State, Json};
 use serde::Serialize;
 
-use crate::{
-    db::DbError,
-    models::game::{self, Game},
-    AppState,
-};
+use crate::{db::DbError, id::Id, models::game::Game, AppState};
+
+#[derive(Serialize)]
+#[cfg_attr(test, derive(serde::Deserialize))]
+pub struct Listing {
+    pub(crate) id: Id,
+    pub(crate) name: String,
+    pub(crate) address: SocketAddr,
+}
 
 #[derive(Serialize)]
 #[cfg_attr(test, derive(serde::Deserialize))]
 pub struct GameListResponse {
-    pub(crate) game_info: Vec<game::GameInfo>,
+    pub(crate) game_listings: Vec<Listing>,
 }
 
 pub async fn game_list(
@@ -20,14 +24,18 @@ pub async fn game_list(
 ) -> Result<Json<GameListResponse>, DbError> {
     let r = state.db.read()?;
 
-    let game_info = r
+    let game_listings = r
         .scan()
         .primary::<Game>()?
         .all()?
         .filter_map(Result::ok)
         .filter(|g| g.is_public())
-        .map(|g| g.info.clone())
+        .map(|g| Listing {
+            id: g.id,
+            name: g.info.name,
+            address: g.info.server_addr,
+        })
         .collect();
 
-    Ok(Json(GameListResponse { game_info }))
+    Ok(Json(GameListResponse { game_listings }))
 }

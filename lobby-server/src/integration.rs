@@ -72,9 +72,9 @@ async fn register_create_game_and_list_then_join() -> anyhow::Result<()> {
     // it should contain our newly made game
     let game_list = list.json::<routes::list::GameListResponse>();
     let game_exists = game_list
-        .game_info
+        .game_listings
         .iter()
-        .any(|info| info.name == game_name);
+        .any(|info| info.id == created_game_id);
     assert!(game_exists, "Game we've just created should be listed");
 
     // "join" the game using the Id
