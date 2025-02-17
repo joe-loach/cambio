@@ -22,8 +22,7 @@ use axum::{
         header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},
         Method,
     },
-    response::IntoResponse,
-    routing::{get, post},
+    routing::{any, get, post},
     Router,
 };
 
@@ -66,7 +65,7 @@ fn router(state: Arc<AppState<'static>>) -> Router {
         ));
 
     Router::new()
-        .route("/", get(|| async { "hello".into_response() }))
+        .route("/", any(routes::health::health_check))
         .route("/list", get(routes::list::game_list))
         .merge(authorization_providers)
         .merge(requires_token)
