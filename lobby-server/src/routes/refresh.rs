@@ -11,7 +11,7 @@ use axum::{
 };
 use axum_extra::extract::CookieJar;
 use jsonwebtoken::{decode, DecodingKey, Validation};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
@@ -28,9 +28,9 @@ static REFRESH_DECODING_KEY: LazyLock<DecodingKey> = LazyLock::new(|| {
     )
 });
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct RefreshResponse {
-    access_token: String,
+    pub access_token: String,
 }
 
 #[derive(Debug, Error)]

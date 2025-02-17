@@ -18,10 +18,9 @@ pub struct LoginRequest {
     password: String,
 }
 
-#[derive(Serialize)]
-#[cfg_attr(test, derive(Deserialize))]
+#[derive(Serialize, Deserialize)]
 pub struct LoginResponse {
-    pub(crate) access_token: String,
+    pub access_token: String,
 }
 
 #[derive(Debug, Error)]

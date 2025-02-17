@@ -6,15 +6,14 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{db, id::Id, models::game::Game, AppState};
 
-#[derive(Serialize)]
-#[cfg_attr(test, derive(serde::Deserialize))]
+#[derive(Serialize, Deserialize)]
 pub struct JoinGameResponse {
-    pub(crate) server_addr: SocketAddr,
+    pub server_addr: SocketAddr,
 }
 
 #[derive(Debug, Error)]

@@ -18,10 +18,9 @@ pub struct CreateGameRequest {
     server_addr: SocketAddr,
 }
 
-#[derive(Serialize)]
-#[cfg_attr(test, derive(Deserialize))]
+#[derive(Serialize, Deserialize)]
 pub struct CreateGameResponse {
-    pub(crate) id: Id,
+    pub id: Id,
 }
 
 #[derive(Debug, Error)]

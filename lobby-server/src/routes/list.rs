@@ -1,22 +1,20 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use axum::{extract::State, Json};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{db::DbError, id::Id, models::game::Game, AppState};
 
-#[derive(Serialize)]
-#[cfg_attr(test, derive(serde::Deserialize))]
+#[derive(Serialize, Deserialize)]
 pub struct Listing {
-    pub(crate) id: Id,
-    pub(crate) name: String,
-    pub(crate) address: SocketAddr,
+    pub id: Id,
+    pub name: String,
+    pub address: SocketAddr,
 }
 
-#[derive(Serialize)]
-#[cfg_attr(test, derive(serde::Deserialize))]
+#[derive(Serialize, Deserialize)]
 pub struct GameListResponse {
-    pub(crate) game_listings: Vec<Listing>,
+    pub game_listings: Vec<Listing>,
 }
 
 pub async fn game_list(
