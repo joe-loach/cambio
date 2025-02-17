@@ -26,7 +26,7 @@ tower_governor = { version = "0.6.0", features = ["tracing"] }
 
 nanoid = "0.4"
 
-dotenvy = "0.15"
+dotenvy = { workspace = true }
 
 # Both versions are tied together
 native_db = "0.8.1"
