@@ -1,17 +1,11 @@
-mod db;
-mod error;
-mod id;
-mod limiter;
-mod log;
-mod middleware;
-mod models;
-mod routes;
-mod token;
-
 #[cfg(test)]
 mod integration;
 
-use id::Id;
+mod middleware;
+mod log;
+mod limiter;
+
+use lobby_server::*;
 use middleware::auth;
 use std::{net::SocketAddr, sync::Arc};
 use tower_governor::GovernorLayer;
@@ -25,10 +19,6 @@ use axum::{
     routing::{any, get, post},
     Router,
 };
-
-pub struct AppState<'a> {
-    db: db::Db<'a>,
-}
 
 fn router(state: Arc<AppState<'static>>) -> Router {
     // let origins = HeaderValue::from_str("http://localhost:3000").unwrap();

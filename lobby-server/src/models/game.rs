@@ -4,12 +4,12 @@ use native_db::*;
 use native_model::{native_model, Model};
 use serde::{Deserialize, Serialize};
 
-use crate::Id;
+use crate::id::Id;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[native_model(id = 1, version = 1)]
 #[native_db]
-pub(crate) struct Game {
+pub struct Game {
     #[primary_key]
     pub(crate) id: Id,
     visibility: Visibility,

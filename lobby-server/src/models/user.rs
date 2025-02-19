@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[native_model(id = 2, version = 1)]
 #[native_db]
-pub(crate) struct User {
+pub struct User {
     #[primary_key]
     pub(crate) name: String,
     pub(crate) password: String,

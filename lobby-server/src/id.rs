@@ -21,6 +21,7 @@ impl Id {
     /// Create a new random [`Id`].
     ///
     /// The [`Id`] will not be sequential and will consist of only VALID_CHARS.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         // crate a random string from VALID_CHARS, len() == LEN
         let game_id = nanoid::format(nanoid::rngs::default, &VALID_ID_CHARS, Self::LEN);
@@ -29,7 +30,6 @@ impl Id {
     }
 }
 
-#[cfg(test)]
 impl Id {
     pub fn as_str(&self) -> &str {
         &self.0

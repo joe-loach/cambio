@@ -31,7 +31,6 @@ impl Db<'_> {
     }
 }
 
-#[cfg(test)]
 impl Db<'_> {
     pub fn from_inner(inner: Database) -> Db {
         Db { inner }

@@ -3,21 +3,21 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub struct AccessClaim {
     /// Subject of the JWT (the user)
-    pub(crate) sub: String,
+    pub sub: String,
     /// Time after which the JWT expires
-    pub(crate) exp: u64,
+    pub exp: u64,
     /// Time at which the JWT was issued; can be used to determine age of the JWT
-    pub(crate) iat: u64,
+    pub iat: u64,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct RefreshClaim {
     /// Subject of the JWT (the user)
-    pub(crate) sub: String,
+    pub sub: String,
     /// Time after which the JWT expires
-    pub(crate) exp: u64,
+    pub exp: u64,
     /// Time at which the JWT was issued; can be used to determine age of the JWT
-    pub(crate) iat: u64,
+    pub iat: u64,
 }
 
 pub const REFRESH_TOKEN_COOKIE: &str = "refresh_token";
