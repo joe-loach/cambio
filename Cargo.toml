@@ -1,5 +1,5 @@
 [workspace]
-members = ["cli", "client", "game-server", "lobby-server", "web"]
+members = ["cli", "client", "game-server", "router", "web"]
 resolver = "2"
 
 [workspace.package]
@@ -14,7 +14,7 @@ cli = { path = "cli" }
 client = { path = "client" }
 common = { path = "common" }
 game-server = { path = "game-server" }
-lobby-server = { path = "lobby-server" }
+router = { path = "router" }
 web = { path = "web"}
 
 anyhow = "1.0"

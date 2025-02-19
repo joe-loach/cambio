@@ -1,5 +1,5 @@
 [package]
-name = "lobby-server"
+name = "router"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

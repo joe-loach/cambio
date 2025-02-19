@@ -5,7 +5,7 @@ mod middleware;
 mod log;
 mod limiter;
 
-use lobby_server::*;
+use router::*;
 use middleware::auth;
 use std::{net::SocketAddr, sync::Arc};
 use tower_governor::GovernorLayer;

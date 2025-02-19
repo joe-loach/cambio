@@ -1022,34 +1022,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ee93343901ab17bd981295f2cf0026d4ad018c7c31ba84549a4ddbb47a45104"
 
 [[package]]
-name = "lobby-server"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "argon2",
- "axum",
- "axum-extra",
- "axum-test",
- "dotenvy",
- "governor",
- "jsonwebtoken",
- "nanoid",
- "native_db",
- "native_model",
- "parking_lot",
- "serde",
- "serde_json",
- "tempdir",
- "thiserror 2.0.11",
- "time",
- "tokio",
- "tower-http",
- "tower_governor",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "lock_api"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1640,6 +1612,34 @@ dependencies = [
  "spin",
  "untrusted",
  "windows-sys",
+]
+
+[[package]]
+name = "router"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "axum",
+ "axum-extra",
+ "axum-test",
+ "dotenvy",
+ "governor",
+ "jsonwebtoken",
+ "nanoid",
+ "native_db",
+ "native_model",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempdir",
+ "thiserror 2.0.11",
+ "time",
+ "tokio",
+ "tower-http",
+ "tower_governor",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
