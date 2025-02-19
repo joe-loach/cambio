@@ -1,5 +1,5 @@
 [package]
-name = "server"
+name = "game-server"
 edition.workspace = true
 version.workspace = true
 authors.workspace = true

@@ -1,5 +1,5 @@
 [workspace]
-members = ["cli", "client", "server", "web"]
+members = ["cli", "client", "game-server", "lobby-server", "web"]
 resolver = "2"
 
 [workspace.package]
@@ -13,10 +13,12 @@ documentation = "https://github.com/joe-loach/cambio"
 cli = { path = "cli" }
 client = { path = "client" }
 common = { path = "common" }
-server = { path = "server" }
+game-server = { path = "game-server" }
+lobby-server = { path = "lobby-server" }
 web = { path = "web"}
 
 anyhow = "1.0"
+thiserror = "2.0"
 async-scoped = { version = "0.9.0", features = ["use-tokio"] }
 dialoguer = "0.11"
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
@@ -35,3 +37,4 @@ toml = "0.8.19"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.11.0", features = ["serde", "v4"] }
+dotenvy = "0.15"
