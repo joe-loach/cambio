@@ -1,21 +1,21 @@
-use std::{ops::ControlFlow, sync::atomic::Ordering};
+use std::{
+    ops::ControlFlow,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
-use common::{data::Stage, event::client};
-use tracing::{info, trace, warn};
+use common::event::client;
+use tracing::{info, warn};
 
-use crate::{channels::Connection, config, Data, GameData, State};
+use crate::{channels::Connection, config, Channels, GameData};
 
-pub async fn lobby(mut data: Data) -> (State, Data) {
-    let Data {
-        config: _,
-        data: ref mut game_data,
-        ref channels,
-        ref connect_enabled,
-    } = data;
-
-    trace!("enter lobby");
-    super::notify_stage_change(Stage::Lobby, channels, game_data).await;
-
+pub async fn run(
+    game_data: &mut GameData,
+    channels: &Channels,
+    connect_enabled: Arc<AtomicBool>,
+) {
     connect_enabled.store(true, Ordering::Relaxed);
 
     let mut client_events = channels.incoming();
@@ -40,10 +40,9 @@ pub async fn lobby(mut data: Data) -> (State, Data) {
                 }
                 // update the logged player count when someone joins or leaves
                 Ok(conn @ (Connection::Disconnect(..) | Connection::Connect(..))) = connects.recv() => {
-                    trace!("Someone connected or disconnected");
                     // when someone leaves during the lobby phase,
                     // we remove them from the game data
-                    if let Connection::Disconnect(id, ..) = conn {
+                    if let Connection::Disconnect(id) = conn {
                         game_data.lock().remove_player(id);
                     }
                     break 'interrupt
@@ -60,14 +59,11 @@ pub async fn lobby(mut data: Data) -> (State, Data) {
     }
 
     connect_enabled.store(false, Ordering::Relaxed);
-
-    trace!("exiting lobby");
-    (State::Playing, data)
 }
 
 fn try_start_game(id: uuid::Uuid, event: client::Event, data: &GameData) -> ControlFlow<()> {
     if let client::Event::Start = event {
-        if super::host_id(data).is_some_and(|host| host == id) {
+        if host_id(data).is_some_and(|host| host == id) {
             info!("host started game");
             return ControlFlow::Break(());
         }
@@ -76,4 +72,9 @@ fn try_start_game(id: uuid::Uuid, event: client::Event, data: &GameData) -> Cont
     }
 
     ControlFlow::Continue(())
+}
+
+fn host_id(data: &GameData) -> Option<uuid::Uuid> {
+    // TODO: make "host" a dedicated field so that the host can be changed
+    data.lock().players().first().map(|p| p.id())
 }

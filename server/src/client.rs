@@ -20,7 +20,7 @@ use tracing::{error, info, trace, warn};
 use crate::{
     channels::Connection,
     config::Config,
-    player::{self, CloseReason, PlayerConn},
+    player::{self, PlayerConn},
     Channels, GameData,
 };
 
@@ -57,20 +57,18 @@ pub async fn connect(
 }
 
 #[derive(Clone)]
-pub struct Disconnects(mpsc::Sender<(uuid::Uuid, CloseReason)>);
+pub struct Disconnects(mpsc::Sender<uuid::Uuid>);
 
 pub fn disconnect(channels: Channels) -> (Disconnects, tokio::task::AbortHandle) {
     let (tx, mut rx) = mpsc::channel(16);
 
     let task = tokio::spawn(async move {
-        while let Some((id, reason)) = rx.recv().await {
+        while let Some(id) = rx.recv().await {
             info!("client {id} has left");
             channels.remove(id).await;
             channels.broadcast_event(server::Event::Left { id }).await;
             // let subscribers know theres been a disconnection
-            let _ = channels
-                .connections()
-                .send(Connection::Disconnect(id, reason));
+            let _ = channels.connections().send(Connection::Disconnect(id));
         }
     });
 
@@ -105,15 +103,13 @@ async fn try_connect(
 
     // let the disconnect handler know
     tokio::spawn(async move {
-        if let Ok(reason) = left.await {
-            let _ = disconnects.0.send((id, reason)).await;
+        if left.await.is_ok() {
+            let _ = disconnects.0.send(id).await;
         }
     });
 
     // signal to the player that they can join the event loop
-    channels
-        .send(player::Command::Event(server::Event::Enter), id)
-        .await;
+    channels.send(server::Event::Enter, id).await;
 }
 
 async fn id_handshake(data: &mut GameData, connection: &mut PlayerConn) -> Option<uuid::Uuid> {

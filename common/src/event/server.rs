@@ -3,12 +3,10 @@ use uuid::Uuid;
 
 use crate::Card;
 
-use crate::data::{PlayerData, Stage};
+use crate::data::PlayerData;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
-    /// The `Stage` has changed
-    StageChange(Stage),
     /// Ready to start serving event loop for client.
     Enter,
     /// The game has restarted

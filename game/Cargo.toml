@@ -1,0 +1,11 @@
+[package]
+name = "game"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+
+[dependencies]
+common = { workspace = true }
+rand = { workspace = true }

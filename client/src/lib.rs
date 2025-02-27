@@ -100,6 +100,9 @@ impl GameClient {
                 server::Event::WaitingForSnap if turn != id => {
                     self.write.send(client::Event::Snap).await.unwrap();
                 }
+                server::Event::ConfirmNewRound => {
+                    self.write.send(client::Event::ConfirmNewRound).await.unwrap();
+                }
                 server::Event::ServerClosing => {
                     break;
                 }

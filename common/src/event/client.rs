@@ -9,7 +9,8 @@ pub enum Event {
     Start,
     Snap,
     Decision(Decision),
-    Continue,
+    ConfirmNewRound,
+    SkipNewRound,
     Leave,
 }
 

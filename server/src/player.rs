@@ -23,52 +23,33 @@ impl PlayerConn {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum CloseReason {
-    /// Closed by request of client or server
-    Request,
-    /// Stream was externally closed without warning
-    Exhausted,
-    /// An error occurred internally
-    Error,
-}
-
-#[derive(Debug, Clone)]
-pub enum Command {
-    Event(server::Event),
-    Close,
-}
-
 pub async fn spawn(
     data: GameData,
     channels: &Channels,
     id: uuid::Uuid,
     mut conn: PlayerConn,
-) -> oneshot::Receiver<CloseReason> {
-    const COMMAND_CHANNEL_CAPACITY: usize = 32;
+) -> oneshot::Receiver<()> {
+    const EVENT_CAPACITY: usize = 32;
 
-    let (tx, rx) = mpsc::channel(COMMAND_CHANNEL_CAPACITY);
+    let (tx, rx) = mpsc::channel(EVENT_CAPACITY);
 
     let events = channels.register(id, tx).await;
 
     // turn channels into streams
-    let mut commands = Box::pin(ReceiverStream::new(rx));
+    let mut server_events = Box::pin(ReceiverStream::new(rx));
 
     let (closing_rx, closing_tx) = oneshot::channel();
 
     tokio::spawn(async move {
-        let reason = loop {
+        loop {
             tokio::select! {
-                res = commands.next() => {
+                res = server_events.next() => {
                     match res {
-                        Some(Command::Event(event)) => {
+                        Some(event) => {
                             conn.write.send(event).await.expect("failed to send event");
                         }
-                        Some(Command::Close) => {
-                            break CloseReason::Request;
-                        }
                         None => {
-                            break CloseReason::Exhausted;
+                            break;
                         }
                     }
                 }
@@ -77,7 +58,7 @@ pub async fn spawn(
                         Some(Ok(event)) => {
                             match try_handle_early(&data, &mut conn, event).await {
                                 Ok(ControlFlow::Continue(())) => (),
-                                Ok(ControlFlow::Break(reason)) => break reason,
+                                Ok(ControlFlow::Break(())) => break,
                                 Err(e) => {
                                     // couldn't handle this event early,
                                     // forward it on to any listeners
@@ -87,18 +68,18 @@ pub async fn spawn(
                         }
                         Some(Err(e)) => {
                             error!("error in client ({id}): `{e}`");
-                            break CloseReason::Error;
+                            break;
                         }
-                        // stream finished
+                        // client disconnected
                         None => {
-                            break CloseReason::Exhausted;
+                            break;
                         }
                     }
                 }
             }
-        };
+        }
 
-        let _ = closing_rx.send(reason);
+        let _ = closing_rx.send(());
     });
 
     closing_tx
@@ -108,13 +89,16 @@ async fn try_handle_early(
     data: &GameData,
     conn: &mut PlayerConn,
     event: client::Event,
-) -> Result<ControlFlow<CloseReason>, client::Event> {
+) -> Result<ControlFlow<()>, client::Event> {
     let res = match event {
-        client::Event::Leave => ControlFlow::Break(CloseReason::Request),
+        client::Event::Leave => ControlFlow::Break(()),
         client::Event::GetLobbyInfo => {
             let player_count = data.lock().player_count();
 
-            let _ = conn.write.send(server::Event::LobbyInfo { player_count }).await;
+            let _ = conn
+                .write
+                .send(server::Event::LobbyInfo { player_count })
+                .await;
 
             ControlFlow::Continue(())
         }

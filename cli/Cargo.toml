@@ -9,7 +9,7 @@ documentation.workspace = true
 [dependencies]
 common = { workspace = true }
 client = { workspace = true }
-game-server = { workspace = true }
+server = { workspace = true }
 
 anyhow = { workspace = true }
 
