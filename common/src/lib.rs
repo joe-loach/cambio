@@ -213,4 +213,8 @@ impl Deck {
     pub fn shuffle<R: rand::Rng + ?Sized>(&mut self, rng: &mut R) {
         self.0.shuffle(rng);
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }

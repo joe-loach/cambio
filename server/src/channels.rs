@@ -6,14 +6,14 @@ use parking_lot::RwLock;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::trace;
 
-use crate::player;
-use crate::{config, player::CloseReason};
+use crate::config;
 
 pub type ClientEvents = (uuid::Uuid, client::Event);
 
 #[derive(Clone)]
 pub enum Connection {
-    Disconnect(uuid::Uuid, CloseReason),
+    Disconnect(uuid::Uuid),
+    #[allow(dead_code)]
     Connect(uuid::Uuid),
 }
 
@@ -25,7 +25,7 @@ struct Process {
 enum ProcessKind {
     Insert {
         id: uuid::Uuid,
-        tx: mpsc::Sender<player::Command>,
+        tx: mpsc::Sender<server::Event>,
     },
     Remove {
         id: uuid::Uuid,
@@ -34,8 +34,8 @@ enum ProcessKind {
 }
 
 enum SendTo {
-    All(Box<dyn Fn(uuid::Uuid) -> player::Command + Send>),
-    One(player::Command, uuid::Uuid),
+    All(Box<dyn Fn(uuid::Uuid) -> server::Event + Send>),
+    One(server::Event, uuid::Uuid),
 }
 
 pub struct Channels {
@@ -66,7 +66,7 @@ impl Channels {
     pub async fn register(
         &self,
         id: uuid::Uuid,
-        tx: mpsc::Sender<player::Command>,
+        tx: mpsc::Sender<server::Event>,
     ) -> broadcast::Sender<ClientEvents> {
         let (sync, finished) = oneshot::channel();
         let _ = self
@@ -94,12 +94,12 @@ impl Channels {
         finished.await.expect("failed to sync");
     }
 
-    pub async fn send(&self, command: player::Command, id: uuid::Uuid) {
+    pub async fn send(&self, event: server::Event, id: uuid::Uuid) {
         let (sync, finished) = oneshot::channel();
         let _ = self
             .out
             .send(Process {
-                kind: ProcessKind::Send(SendTo::One(command, id)),
+                kind: ProcessKind::Send(SendTo::One(event, id)),
                 sync,
             })
             .await;
@@ -107,15 +107,11 @@ impl Channels {
     }
 
     pub async fn broadcast_event(&self, event: server::Event) {
-        let _ = self.broadcast_command(player::Command::Event(event)).await;
-    }
-
-    pub async fn broadcast_command(&self, command: player::Command) {
         let (sync, finished) = oneshot::channel();
         let _ = self
             .out
             .send(Process {
-                kind: ProcessKind::Send(SendTo::All(Box::new(move |_| command.clone()))),
+                kind: ProcessKind::Send(SendTo::All(Box::new(move |_| event.clone()))),
                 sync,
             })
             .await;
@@ -124,7 +120,7 @@ impl Channels {
 
     pub async fn broadcast_map<F>(&self, f: F)
     where
-        F: Fn(uuid::Uuid) -> player::Command + Send + 'static,
+        F: Fn(uuid::Uuid) -> server::Event + Send + 'static,
     {
         let (sync, finished) = oneshot::channel();
         let _ = self
@@ -183,7 +179,7 @@ async fn send_aggregator(mut out_rx: mpsc::Receiver<Process>) {
 }
 
 async fn handle_send(
-    map: Arc<RwLock<HashMap<uuid::Uuid, mpsc::Sender<player::Command>>>>,
+    map: Arc<RwLock<HashMap<uuid::Uuid, mpsc::Sender<server::Event>>>>,
     send: SendTo,
 ) {
     match send {

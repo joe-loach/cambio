@@ -2,24 +2,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Card, Deck, STARTING_DECK_LEN};
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
-pub enum Stage {
-    Lobby,
-    Playing,
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct GameData {
-    pub stage: Stage,
-    pub deck: Deck,
     players: Vec<PlayerData>,
 }
 
 impl GameData {
     pub fn new() -> Self {
         GameData {
-            stage: Stage::Lobby,
-            deck: Deck::full(),
             players: Vec::new(),
         }
     }
@@ -110,7 +100,7 @@ impl Default for PlayerData {
     }
 }
 
-pub fn take_starting_cards(data: &mut GameData, player: usize) {
-    let cards_from_deck = data.deck.0.drain(..STARTING_DECK_LEN);
+pub fn take_starting_cards(deck: &mut Deck, data: &mut GameData, player: usize) {
+    let cards_from_deck = deck.0.drain(..STARTING_DECK_LEN);
     data.players[player].cards.extend(cards_from_deck);
 }

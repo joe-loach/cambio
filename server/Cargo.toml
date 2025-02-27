@@ -1,5 +1,5 @@
 [package]
-name = "game-server"
+name = "server"
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
@@ -8,6 +8,7 @@ documentation.workspace = true
 
 [dependencies]
 common = { workspace = true }
+game = { workspace = true }
 
 anyhow = { workspace = true }
 
@@ -26,5 +27,6 @@ tokio-util = { workspace = true }
 tokio-stream = { workspace = true }
 
 tracing = { workspace = true }
+tracing-test = { workspace = true }
 
 uuid = { workspace = true }
