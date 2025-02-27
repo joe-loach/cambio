@@ -171,8 +171,6 @@ async fn handle_incoming_event(
         ClientEvent::Snap => game.handle_snap(Card::Joker, Instant::now()),
         ClientEvent::Decision(decision) => game.handle_decision(decision, Instant::now()),
         ClientEvent::ConfirmNewRound => {
-            debug!("got confirmation from {from_id}");
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             if confirmed.insert(from_id) {
                 game.confirm_new_round(data.lock().player_count(), Instant::now())
             }
